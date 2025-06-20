@@ -18,4 +18,4 @@ GOTO :EXIT
 :EXIT
 ECHO ON
 
-rem exit
+exit
