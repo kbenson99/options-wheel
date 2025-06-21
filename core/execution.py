@@ -3,14 +3,17 @@ from .strategy import filter_underlying, filter_options, score_options, select_o
 from models.contract import Contract
 import numpy as np
 
+from alpaca.trading.enums import AssetClass
+
 from config.params import IS_TEST
 
 logger = logging.getLogger(f"strategy.{__name__}")
 
-def sell_puts(client, allowed_symbols, buying_power, strat_logger = None):
+def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger = None):
 	"""
 	Scan allowed symbols and sell short puts up to the buying power limit.
 	"""
+	# buying_power=20000
 	if not allowed_symbols or buying_power <= 0:
 		return
 
@@ -31,21 +34,37 @@ def sell_puts(client, allowed_symbols, buying_power, strat_logger = None):
 		scores = score_options(put_options)
 		put_options = select_options(put_options, scores)
 		for p in put_options:
+			print(p)
+			if p.symbol in ownedPositions:
+				logger.info(f"We alread own {p.symbol}.  Skipping!")
+				continue
+			
 			buying_power -= 100 * p.strike 
 			if buying_power < 0:
 				break
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
-			print(p)
-			if not IS_TEST:
-				client.market_sell(p.symbol)
-			else:
-				logger.info("TESTING ONLY")
-			if strat_logger:
-				strat_logger.log_sold_puts([p.to_dict()])
+			# print(p)
+			try:				
+				if not IS_TEST:
+					client.market_sell(p.symbol)
+				else:
+					logger.info("TESTING ONLY")
+				if strat_logger:
+					strat_logger.log_sold_puts([p.to_dict()])
+			except Exception as ex:
+				buying_power += 100 * p.strike
+				logger.exception(str(ex))
+				logger.exception(ex) 
 	else:
 		logger.info("No put options found with sufficient delta and open interest.")
 
-def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, strat_logger = None):
+def find_first_non_alpha_loop(s):
+    for index, char in enumerate(s):
+        if not char.isalpha():
+            return char, index
+    return None, -1 # No non-alpha character found
+	
+def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, ownedPositions, strat_logger = None):
 	"""
 	Select and sell covered calls.
 	"""
@@ -81,14 +100,42 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, str
 		# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper boiler band
 		if strike_price > upperBollinger:	
 			logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
-		
-			logger.info(f"Selling call option: {contract.symbol}")
-			if not IS_TEST:
-				client.market_sell(contract.symbol)
+			# print(contract)
+			# print(ownedPositions)
+			
+			continueWithContract = True
+			if contract.symbol in ownedPositions:
+				logger.info(f"We already own {contract.symbol}.  Skipping!")
+				continueWithContract = False						
 			else:
-				logger.info("TESTING ONLY")
-			if strat_logger:
-				strat_logger.log_sold_calls(contract.to_dict())
+				if symbol in ownedPositions:
+					ownedSymbolQty = ownedPositions[symbol]
+					# print(ownedSymbolQty)
+					
+					howManyContractsAlreadyOwned = 0
+					for position in ownedPositions:
+						owned = ownedPositions[position]
+						if owned.asset_class == AssetClass.US_OPTION:
+							pos = find_first_non_alpha_loop(position)[1]
+							# print(pos)
+							# print(position, symbol, position[0: pos])
+
+							if position[0: pos] == symbol:
+								thisPositionContract = ownedPositions[position]
+								# print(thisPositionContract)
+								howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
+					if howManyContractsAlreadyOwned:
+						if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
+							logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
+							continueWithContract = False				
+			if continueWithContract:
+				logger.info(f"Selling call option: {contract.symbol}")
+				if not IS_TEST:
+					client.market_sell(contract.symbol)
+				else:
+					logger.info("TESTING ONLY")
+				if strat_logger:
+					strat_logger.log_sold_calls(contract.to_dict())
 		else:
 			logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
 	else:

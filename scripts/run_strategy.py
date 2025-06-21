@@ -21,12 +21,29 @@ from logging.strategy_logger import StrategyLogger
 from logging.logger_setup import setup_logger
 from core.cli_args import parse_args
 
+from alpaca.trading.enums import ContractType, AssetStatus, AssetClass
+
 from core.strategy import getUpperBollingerBand
 
 from configuration import *
 from datetime import datetime, time
 from config.params import IS_TEST
 
+
+class BrokerClientInstance:
+	_instance = None
+
+	def __new__(cls, *args, **kwargs):
+		if cls._instance is None:
+			cls._instance = super().__new__(cls)
+		return cls._instance
+
+	def __init__(self):
+		# __init__ will be called every time, but on the same instance
+		if not hasattr(self, '_initialized'): # Prevent re-initialization
+			self.client = getBrokerClient()
+			self._initialized = True
+			
 
 def getBrokerClient():
 	client = BrokerClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY, paper=IS_PAPER)
@@ -69,6 +86,23 @@ def is_time_in_range(start_time, end_time, current_time):
     else:
         # Case 2: Time range spans across midnight (e.g., 22:00 - 06:00)
         return start_time <= current_time or current_time < end_time
+		
+def getCurrentPositions(optionsOnly=False, rawOnly=False):
+	client = BrokerClientInstance().client
+	positions = client.get_positions()
+	
+	data = dict()
+	if rawOnly:
+		return positions
+	else:
+		for p in positions:
+			# print(p.asset_class)
+			if p.asset_class == AssetClass.US_EQUITY:
+				if not optionsOnly:
+					data[p.symbol] = p
+			else:
+				data[p.symbol] = p
+		return data
 
 def main():
 	args = parse_args()
@@ -83,7 +117,7 @@ def main():
 	with open(SYMBOLS_FILE, 'r') as file:
 		SYMBOLS = [line.strip() for line in file.readlines()]
 
-	client = getBrokerClient()
+	client = BrokerClientInstance().client
 	tradingClient = getTradingClient()
 	stock_data_client = getStockClient()
 
@@ -118,7 +152,7 @@ def main():
 				buying_power = MAX_RISK
 			else:
 				positions = client.get_positions()
-				print(positions)
+				# print(positions)
 				available = list()
 				for position in positions:
 					if int(position.qty) >= 100:
@@ -132,9 +166,11 @@ def main():
 				states = update_state(positions)
 				strat_logger.add_state_dict(states)
 
+				ownedPositions = getCurrentPositions()
+
 				for symbol, state in states.items():
 					if state["type"] == "long_shares":
-						sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], strat_logger)
+						sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
 				
@@ -146,7 +182,9 @@ def main():
 			strat_logger.set_allowed_symbols(allowed_symbols)
 
 			logger.info(f"Current buying power is ${buying_power}")
-			sell_puts(client, allowed_symbols, buying_power, strat_logger)
+			
+			ownedPositions = getCurrentPositions(True)
+			sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
 
 			strat_logger.save()    
 	
