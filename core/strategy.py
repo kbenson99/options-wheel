@@ -39,7 +39,7 @@ def score_options(options):
     scores = [(1 - abs(p.delta)) * (250 / (p.dte + 5)) * (p.bid_price / p.strike) for p in options]
     return scores
 
-def getUpperBollingerBand(underlying_symbol, stock_data_client=None):
+def getBollingerBands(underlying_symbol, stock_data_client=None):
 	# setup stock historical data client
 	timezone = ZoneInfo("America/New_York")
 
@@ -73,12 +73,17 @@ def getUpperBollingerBand(underlying_symbol, stock_data_client=None):
 
 	# Calculate the Upper Bollinger Band
 	stock_data['Upper_Band'] = stock_data['SMA'] + (multiplier * stock_data['StdDev'])
+	
+	# Calculate the Lower Bollinger Band
+	stock_data['Lower_Band'] = stock_data['SMA'] - (multiplier * stock_data['StdDev'])
 
 	# Get the most recent Upper Band value
-	latest_upper_bollinger_band = stock_data['Upper_Band'].iloc[-1]
+	upper_bollinger_band = stock_data['Upper_Band'].iloc[-1]
+	lower_bollinger_band = stock_data['Lower_Band'].iloc[-1]
 
-	print(f"Latest Upper Bollinger Band is: {latest_upper_bollinger_band}")
-	return latest_upper_bollinger_band
+	print(f"Latest Upper Bollinger Band is: {upper_bollinger_band}")
+	print(f"Latest Lower Bollinger Band is: {lower_bollinger_band}")
+	return upper_bollinger_band, lower_bollinger_band
 	
 
 def select_options(options, scores, n=None):

@@ -12,10 +12,13 @@ cd \Investment\alpaca\options-wheel
 CLS
 
 call %CMD% --strat-log --log-level DEBUG --log-to-file
+
+if %argCount% == 1 GOTO :END
 GOTO :EXIT
 
-	
 :EXIT
+exit
+	
+:END
 ECHO ON
 
-exit

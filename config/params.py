@@ -4,7 +4,7 @@ MAX_RISK = 3_000
 # The range of allowed Delta (absolute value) when choosing puts or calls to sell.  
 # The goal is to balance low assignment risk (lower Delta) with high premiums (higher Delta).
 DELTA_MIN = 0.15 
-DELTA_MAX = 0.35
+DELTA_MAX = 0.32
 
 # The range of allowed yield when choosing puts or calls to sell.
 YIELD_MIN = 0.04

@@ -1,5 +1,5 @@
 import logging
-from .strategy import filter_underlying, filter_options, score_options, select_options, getUpperBollingerBand
+from .strategy import filter_underlying, filter_options, score_options, select_options, getBollingerBands
 from models.contract import Contract
 import numpy as np
 
@@ -78,7 +78,8 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 	if strat_logger:
 		strat_logger.log_call_options([c.to_dict() for c in call_options])
 
-	upperBollinger = getUpperBollingerBand(symbol, stock_data_client)
+	bollingerBands = getBollingerBands(symbol, stock_data_client)
+	upperBollinger, lowerBollinger = bollingerBands
 	logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
 	
 	if call_options:
@@ -97,7 +98,7 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		logger.info(f"open_interest is {open_interest}")
 		logger.info(f"delta is {contract.delta}")
 
-		# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper boiler band
+		# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper Bollinger band
 		if strike_price > upperBollinger:	
 			logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
 			# print(contract)

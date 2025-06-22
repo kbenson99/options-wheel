@@ -23,7 +23,7 @@ from core.cli_args import parse_args
 
 from alpaca.trading.enums import ContractType, AssetStatus, AssetClass
 
-from core.strategy import getUpperBollingerBand
+from core.strategy import getBollingerBands
 
 from configuration import *
 from datetime import datetime, time
@@ -205,14 +205,14 @@ def testSellCall(symbol):
 	client = getTradingClient()
 	stock_data_client = getStockClient()
 	
-	upperBollinger = getUpperBollingerBand(symbol, stock_data_client)
+	upperBollinger = getBollingerBands(symbol, stock_data_client)
 	
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
-	print(underlying_trade_response[symbol].price)
+	print(f"Current price for {symbol} is {underlying_trade_response[symbol].price}")
 	
 	strat_logger = getStrategyLogger()
 	logger = getLogger()
-	sell_calls(client, stock_data_client, symbol, underlying_trade_response[symbol].price, 100, strat_logger)
+	# sell_calls(client, stock_data_client, symbol, underlying_trade_response[symbol].price, 100, strat_logger)
 	
 	
 	print(underlying_trade_response)
