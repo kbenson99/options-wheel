@@ -1,7 +1,12 @@
 import logging
 from .strategy import filter_underlying, filter_options, score_options, select_options, getBollingerBands
 from models.contract import Contract
+
+from alpaca.data.requests import OptionLatestQuoteRequest
+from alpaca.data.historical.option import OptionHistoricalDataClient
 import numpy as np
+
+from core.clients import *
 
 from alpaca.trading.enums import AssetClass
 
@@ -141,3 +146,9 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 			logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
 	else:
 		logger.info(f"No viable call options found for {symbol}")
+		
+
+
+# message, short = roll_rinse_option(option_data=short_put, rolling=True)
+# message, short
+

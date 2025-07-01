@@ -106,3 +106,92 @@ def select_options(options, scores, n=None):
 
     # Return top n (or all if n not specified)
     return [option for option, _ in sorted_best[:n]] if n else [option for option, _ in sorted_best]
+
+
+# Exit the market order
+def roll_rinse_execution(option_data, rolling=True):
+
+    # if rolling the option, close the short put and re-enter the market with a new cash secured put or close the long call and re-enter the market with a new long call
+    if rolling:
+        # Deternine if the option is a call or put
+        option_type = option_data['type'].value
+
+        # If the option is a put, close the short put by buying it back
+        if option_type == 'put':
+
+            # Close the short put by buying it back
+            req = MarketOrderRequest(
+                symbol=option_data['symbol'],
+                qty=1,
+                side='buy',
+                type='market',
+                time_in_force='day'
+            )
+
+            # Submit the order to close the short put
+            trade_client.submit_order(req)
+            print(f"Closed short {option_type} option: {option_data['symbol']} bought")
+
+            # Re-enter the market with a new cash secured put
+            rolling_message, short = execute_cash_secured_put(underlying_symbol, RISK_FREE_RATE, buying_power_limit)
+
+            if short:
+                # You can add the `rolling_message` from the `execute_cash_secured_put` function below to check if the short put or call is not sccessfully placed
+                return f"Re-entering market with new cash secured put on {option_data['underlying_symbol']}", short
+            else:
+                return f"Failed to re-enter market with new cash secured put on {option_data['underlying_symbol']}", None
+
+        # If the option is a call, close the short call by buying it back
+        else:
+            # Close the short call by buying it back
+            req = MarketOrderRequest(
+                symbol=option_data['symbol'],
+                qty=1,
+                side='buy',
+                type='market',
+                time_in_force='day'
+            )
+
+            # Submit the order to close the covered call (short call)
+            trade_client.submit_order(req)
+            print(f"Closing short {option_type} option: {option_data['symbol']} sold")
+
+            # Re-enter the market with a new covered call
+            rolling_message, short = execute_covered_call(underlying_symbol, RISK_FREE_RATE, buying_power_limit)
+
+            if short:
+                return f"Re-entering market with new covered call on {option_data['underlying_symbol']}", short
+            else:
+                return f"Failed to re-enter market with new covered call on {option_data['underlying_symbol']}", None
+
+    else:
+        # If the option is a put, close the short put by buying it back
+        if option_type == 'put':
+
+            # Close the short put by buying it back
+            req = MarketOrderRequest(
+                symbol=option_data['symbol'],
+                qty=1,
+                side='buy',
+                type='market',
+                time_in_force='day'
+            )
+            trade_client.submit_order(req)
+            return f"Closed short {option_type} option: {option_data['symbol']} bought", None
+
+         # If the option is a call, close the short call by buying it back
+        else:
+            # Close the short call by buying it back
+            req = MarketOrderRequest(
+                symbol=option_data['symbol'],
+                qty=1,
+                side='buy',
+                type='market',
+                time_in_force='day'
+            )
+
+            # Submit the order to close the covered call (short call)
+            trade_client.submit_order(req)
+            return f"Closing short {option_type} option: {option_data['symbol']} sold", None
+
+
