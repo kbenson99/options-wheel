@@ -183,7 +183,7 @@ def main():
 					try:
 						rec = optionPositions[h]
 						shouldClose = roll_rinse_option(rec)
-						if shouldClose:
+						if shouldClose and marketOpen:
 							tradingClient.close_position(rec.symbol)
 					except Exception as re:
 						logger.exception(str(re))
@@ -323,7 +323,10 @@ def roll_rinse_option(option_data, rolling=True):
 
 	print(f"option_symbol is {option_symbol}")
 	print(f"current option_price is {current_option_price}")
+	print(f"Original option price is {option_data.avg_entry_price}")
 	print(f"current strike price is {strike_price}")
+	
+	remainingPerc = current_option_price / float(option_data.avg_entry_price)
 	
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
 	
@@ -362,7 +365,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	# Set target profit levels in two ways: 1) 50% of the initial credit received, 2) 2x the initial delta of the short put
 	# print(option_data)
-	targetPercentageLeft = 0.4
+	targetPercentageLeft = .45
 	target_profit_price = float(option_data.avg_entry_price) * targetPercentageLeft  # x% of credit received
 	print(current_delta)
 	# initial_delta = option_data['initial_delta'] * 2  # Set target delta level at 2x the initial delta of the short put
@@ -370,20 +373,22 @@ def roll_rinse_option(option_data, rolling=True):
 	# roll or rinse the option if the absoluete value of the current delta is greater than or equal to the initial delta
 	# if abs(current_delta) >= abs(initial_delta) or current_option_price <= target_profit_price:
 
-	targetPercentageLeft = 1-targetPercentageLeft
-	if current_option_price <= target_profit_price or abs(current_delta) > .5:
+	# targetPercentageLeft = 1-targetPercentageLeft
+	# if current_option_price <= target_profit_price and abs(current_delta) > .5:
+	if (remainingPerc <= targetPercentageLeft and abs(current_delta) > .5):  #or remainingPerc > 1.0 :
 		# Roll or rinse the option
 		# rinsing_message, short = roll_rinse_execution(option_data, rolling=rolling)
 		shouldSell = True
 
 		# you can add the `rinsing_message` from the `roll_rinse_execution` function below to check if the short put or call is not sccessfully placed
 		targetPercentageLeft *= 100
-		msg = f"The option price is less than {targetPercentageLeft}% of the initial credit received. Executing roll/rinse." #, short
+		msg = f"The option price {current_option_price} for {option_symbol} is less than {targetPercentageLeft}% of the initial credit received of {option_data.avg_entry_price}. Delta {current_delta}.  Current {underlying_price}. Remaining {remainingPerc}.  Executing roll/rinse." #, short
+		# msg = f"The option price {current_option_price} for {option_symbol} is less than {targetPercentageLeft}% of the initial credit received of {option_data.avg_entry_price}. Executing roll/rinse." #, short
 		logger.info(msg)
 
 	else:
 		targetPercentageLeft *= 100
-		msg = f"The option price is greater than {targetPercentageLeft}% of the initial credit received. Holding the position.", None
+		msg = f"The option price is greater than {targetPercentageLeft}% of the initial credit received. Remaining {remainingPerc}. Delta {current_delta}. Holding the position.", None
 		logger.info(msg)
 	return shouldSell
 
