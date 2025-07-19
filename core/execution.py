@@ -120,16 +120,20 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 					
 					howManyContractsAlreadyOwned = 0
 					for position in ownedPositions:
+						# print(position)
 						owned = ownedPositions[position]
+						# print(owned)
 						if owned.asset_class == AssetClass.US_OPTION:
 							pos = find_first_non_alpha_loop(position)[1]
 							# print(pos)
 							# print(position, symbol, position[0: pos])
 
-							if position[0: pos] == symbol:
+							if position[0: pos] == symbol and position[pos+6] =='C':
+								# print(position[pos+6])
 								thisPositionContract = ownedPositions[position]
 								# print(thisPositionContract)
 								howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
+					# print(howManyContractsAlreadyOwned, int(ownedSymbolQty.qty))
 					if howManyContractsAlreadyOwned:
 						if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
 							logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
