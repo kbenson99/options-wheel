@@ -34,6 +34,7 @@ from datetime import datetime, time
 from scipy.stats import norm
 from scipy.optimize import brentq
 import numpy as np
+from database import *
 
 from config.params import IS_TEST
 
@@ -112,6 +113,11 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 			else:
 				data[p.symbol] = p
 		return data
+		
+def isEnabled():
+	data = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
+	active = data.iloc(0)[0].active
+	return active.upper() == 'Y'
 
 def main():
 	args = parse_args()
@@ -152,6 +158,10 @@ def main():
 			logger.info("Market is not open")
 			if IS_TEST:
 				logger.info("Running TESTS even though market is not open")
+		
+		if not isEnabled():
+			logger.info("NEON Sql flag set to NOT ENABLED!!!")
+			return
 		
 		if marketOpen or IS_TEST:
 			if args.fresh_start:
@@ -367,22 +377,26 @@ def roll_rinse_option(option_data, rolling=True):
 	# print(option_data)
 	targetPercentageLeft = .45
 	target_profit_price = float(option_data.avg_entry_price) * targetPercentageLeft  # x% of credit received
-	print(current_delta)
-	# initial_delta = option_data['initial_delta'] * 2  # Set target delta level at 2x the initial delta of the short put
+	# print(current_delta)
+	# initial_delta = option_data.initial_delta * 2  # Set target delta level at 2x the initial delta of the short put
 
 	# roll or rinse the option if the absoluete value of the current delta is greater than or equal to the initial delta
 	# if abs(current_delta) >= abs(initial_delta) or current_option_price <= target_profit_price:
 
 	# targetPercentageLeft = 1-targetPercentageLeft
+	
+	targetPercent = .25
+	targetTest = targetPercent * float(option_data.avg_entry_price)
 	# if current_option_price <= target_profit_price and abs(current_delta) > .5:
-	if (remainingPerc <= targetPercentageLeft and abs(current_delta) > .5):  #or remainingPerc > 1.0 :
+	# if (remainingPerc <= targetPercentageLeft and abs(current_delta) > .5):  #or remainingPerc > 1.0:
+	if current_option_price < targetTest: # or abs(current_delta) > .75:
 		# Roll or rinse the option
 		# rinsing_message, short = roll_rinse_execution(option_data, rolling=rolling)
 		shouldSell = True
 
 		# you can add the `rinsing_message` from the `roll_rinse_execution` function below to check if the short put or call is not sccessfully placed
 		targetPercentageLeft *= 100
-		msg = f"The option price {current_option_price} for {option_symbol} is less than {targetPercentageLeft}% of the initial credit received of {option_data.avg_entry_price}. Delta {current_delta}.  Current {underlying_price}. Remaining {remainingPerc}.  Executing roll/rinse." #, short
+		msg = f"CLOSING!  The option price {current_option_price} for {option_symbol} is less than {targetPercent* 100}% of the initial credit received of {option_data.avg_entry_price}. Delta {current_delta}.  Current {underlying_price}. Remaining {remainingPerc}.  Executing roll/rinse." #, short
 		# msg = f"The option price {current_option_price} for {option_symbol} is less than {targetPercentageLeft}% of the initial credit received of {option_data.avg_entry_price}. Executing roll/rinse." #, short
 		logger.info(msg)
 
