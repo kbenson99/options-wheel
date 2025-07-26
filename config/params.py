@@ -13,7 +13,7 @@ YIELD_MAX = 1.00
 # The range of allowed days till expiry when choosing puts or calls to sell.
 # The goal is to balance shorter expiry for consistent income generation with longer expiry for time value premium.
 EXPIRATION_MIN = 0
-EXPIRATION_MAX = 32
+EXPIRATION_MAX = 35
 
 # Only trade contracts with at least this much open interest.
 OPEN_INTEREST_MIN = 100

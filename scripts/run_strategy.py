@@ -35,6 +35,7 @@ from scipy.stats import norm
 from scipy.optimize import brentq
 import numpy as np
 from database import *
+import pandas as pd
 
 from config.params import IS_TEST
 
@@ -118,6 +119,18 @@ def isEnabled():
 	data = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
 	active = data.iloc(0)[0].active
 	return active.upper() == 'Y'
+	
+def getSymbols():
+	df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
+	symbols = df[symbolColumn.lower()].unique().tolist()
+	return symbols
+	
+def loadSymbols():
+	SYMBOLS_FILE = Path(__file__).parent.parent / "config" / "symbol_list.txt"
+	df = pd.read_csv(SYMBOLS_FILE)
+	# print(optionsSymbolsTable)
+	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
+	
 
 def main():
 	args = parse_args()
@@ -127,15 +140,10 @@ def main():
 	logger = getLogger() # standard Python logger used for general runtime messages, debugging, and error reporting.
 
 	strat_logger.set_fresh_start(args.fresh_start)
-
-	SYMBOLS_FILE = Path(__file__).parent.parent / "config" / "symbol_list.txt"
-	with open(SYMBOLS_FILE, 'r') as file:
-		SYMBOLS = [line.strip() for line in file.readlines()]
-
+	
 	client = AlpacaClientInstance().getClient(BrokerClient)
 	tradingClient = AlpacaClientInstance().getClient(TradingClient)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
-
 
 	portNumber = 7050
 	s = None
@@ -143,7 +151,15 @@ def main():
 	try:    
 		s = getSocketPort(portNumber)
 		connected = True
-	
+
+		# SYMBOLS_FILE = Path(__file__).parent.parent / "config" / "symbol_list.txt"
+		# with open(SYMBOLS_FILE, 'r') as file:
+			# SYMBOLS = [line.strip() for line in file.readlines()]
+
+		logger.info("Getting symbols")
+		SYMBOLS = getSymbols()
+		logger.info("Received {} symbols".format(len(SYMBOLS)))
+		
 		logger.info("Received a lock on local port {}".format(portNumber))
 		now = datetime.now()
 		marketOpen = market_is_open(now)
@@ -162,6 +178,9 @@ def main():
 		if not isEnabled():
 			logger.info("NEON Sql flag set to NOT ENABLED!!!")
 			return
+		
+		
+		logger.info("NEON Sql flag set to ENABLED!!!")
 		
 		if marketOpen or IS_TEST:
 			if args.fresh_start:
@@ -204,6 +223,7 @@ def main():
 						sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
+				print(allowed_symbols)
 				
 				buying_power = float(tradingClient.get_account().buying_power)
 				
