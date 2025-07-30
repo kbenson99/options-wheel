@@ -119,6 +119,10 @@ def isEnabled():
 	data = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
 	active = data.iloc(0)[0].active
 	return active.upper() == 'Y'
+
+def getSymbolSource():
+	file = Path(__file__).parent.parent / "config" / "symbol_list.txt"
+	return file
 	
 def getSymbols():
 	df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
@@ -126,8 +130,7 @@ def getSymbols():
 	return symbols
 	
 def loadSymbols():
-	SYMBOLS_FILE = Path(__file__).parent.parent / "config" / "symbol_list.txt"
-	df = pd.read_csv(SYMBOLS_FILE)
+	df = pd.read_csv(getSymbolSource())
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 	
