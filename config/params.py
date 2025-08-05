@@ -10,6 +10,9 @@ DELTA_MAX = 0.32
 YIELD_MIN = 0.04
 YIELD_MAX = 1.00
 
+# The minimum amount of premium we are willing to consider
+MINIMUM_PREMIUM = .07
+
 # The range of allowed days till expiry when choosing puts or calls to sell.
 # The goal is to balance shorter expiry for consistent income generation with longer expiry for time value premium.
 EXPIRATION_MIN = 0

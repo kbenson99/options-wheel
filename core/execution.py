@@ -10,7 +10,7 @@ from core.clients import *
 
 from alpaca.trading.enums import AssetClass
 
-from config.params import IS_TEST
+from config.params import IS_TEST, MINIMUM_PREMIUM
 
 logger = logging.getLogger(f"strategy.{__name__}")
 
@@ -47,6 +47,11 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 			buying_power -= 100 * p.strike 
 			if buying_power < 0:
 				break
+				
+			if p.bid_price <= MINIMUM_PREMIUM:
+				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower than our target {MINIMUM_PREMIUM}")
+				continue
+				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
 			# print(p)
 			try:				
