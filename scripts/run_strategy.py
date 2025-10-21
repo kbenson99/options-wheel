@@ -158,7 +158,8 @@ def main():
 		# SYMBOLS_FILE = Path(__file__).parent.parent / "config" / "symbol_list.txt"
 		# with open(SYMBOLS_FILE, 'r') as file:
 			# SYMBOLS = [line.strip() for line in file.readlines()]
-
+		
+		logger.info("Running a paper account? {}".format(IS_PAPER))
 		logger.info("Getting symbols")
 		SYMBOLS = getSymbols()
 		logger.info("Received {} symbols".format(len(SYMBOLS)))

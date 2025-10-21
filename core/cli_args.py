@@ -27,5 +27,5 @@ def parse_args():
         action="store_true",
         help="Write logs to file instead of just printing to stdout"
     )
-    
-    return parser.parse_args()
+    known_args, unknown_args = parser.parse_known_args()
+    return known_args

@@ -41,7 +41,7 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 		for p in put_options:
 			print(p)
 			if p.symbol in ownedPositions:
-				logger.info(f"We alread own {p.symbol}.  Skipping!")
+				logger.info(f"We already own {p.symbol}.  Skipping!")
 				continue
 			
 			buying_power -= 100 * p.strike 
