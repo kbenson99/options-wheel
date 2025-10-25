@@ -5,6 +5,8 @@ from core.broker_client import BrokerClient
 from alpaca.trading.client import TradingClient
 from alpaca.data.historical.stock import StockLatestTradeRequest
 from alpaca.data.requests import OptionLatestQuoteRequest
+from alpaca.trading.requests import GetOrdersRequest
+import re
 
 from core.execution import sell_puts, sell_calls
 from core.state_manager import update_state, calculate_risk
@@ -14,7 +16,7 @@ from logging.strategy_logger import StrategyLogger
 from logging.logger_setup import setup_logger
 from core.cli_args import parse_args
 
-from alpaca.trading.enums import ContractType, AssetStatus, AssetClass
+from alpaca.trading.enums import ContractType, AssetStatus, AssetClass, QueryOrderStatus
 
 from core.strategy import getBollingerBands
 from core.execution import find_first_non_alpha_loop
@@ -63,12 +65,18 @@ RISK_FREE_RATE = 0.01
 
 def getStrategyLogger():
 	args = parse_args()
-	strat_logger = StrategyLogger(enabled=args.strat_log)
+	filename = "logs/strategy_log.json"
+	if not IS_PAPER:
+		filename = "logs/strategy_log-prod.json"
+	strat_logger = StrategyLogger(enabled=args.strat_log, log_path=filename)
 	return strat_logger
 
 def getLogger():
 	args = parse_args()
-	logger = setup_logger(level=args.log_level, to_file=args.log_to_file)
+	filename = "logs/run.log"
+	if not IS_PAPER:
+		filename = "logs/run-prod.log"
+	logger = setup_logger(level=args.log_level, to_file=args.log_to_file, log_file=filename)
 	return logger
 
 def is_time_in_range(start_time, end_time, current_time):
@@ -126,6 +134,77 @@ def loadSymbols():
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 	
+def checkTrades():
+	request_params = GetOrdersRequest(
+                    limit=500,
+                    status=QueryOrderStatus.ALL
+                    ,direction='asc'
+                    # ,side=OrderSide.SELL
+                 )
+				 
+	client = AlpacaClientInstance().getClient(BrokerClient)
+	tradingClient = AlpacaClientInstance().getClient(TradingClient)
+	orders = tradingClient.get_orders(filter=request_params)
+	# print(orders)
+	trans = list()
+	closedTotalPreium = 0
+	cnt = 0
+	pattern = r'\d+'
+
+	for order in orders:
+		if order.asset_class.value == 'us_option':
+		# print(order)
+
+		# print(amount)
+			if order.filled_avg_price:
+				amount = float(order.filled_qty) * float(order.filled_avg_price) * 100
+
+				if order.side == 'sell':
+					# print(order.symbol)
+					match = re.search(pattern, order.symbol)
+					expireStr = order.symbol[match.start():match.end()]
+					year = 2000 + int(expireStr[0:2])
+					month = int(expireStr[2:4])
+					day = int(expireStr[4:6])
+
+					expires = datetime(year, month, day)
+					trans.append((order.symbol, amount, expires))
+				if order.side == 'buy':
+					amount = amount * -1
+					index  = [index for (index, item) in enumerate(trans) if item[0] == order.symbol]
+					# print(index)
+					# index = trans.index(order.symbol)
+					sold, premium, expires = trans.pop(index[0])
+					# print(f'Position {order.symbol} closed with a buy price of {amount} and original premium of {premium}')
+					# print(order.symbol, order.created_at, amount + premium)
+					closedTotalPreium += amount + premium
+				cnt += 1
+	# print(total, cnt)
+	print(len(trans))
+
+	now = datetime.now()
+	expired = 0
+	expiredPremium = 0
+	nonExpiredPremium = 0
+	for rec in trans:
+		contract, amount, expire = rec
+		if expire.date() < now.date():
+			expired += 1
+			index  = [index for (index, item) in enumerate(trans) if item[0] == contract]
+			sold, premium, expires = trans.pop(index[0])
+			expiredPremium += premium
+			expired += 1
+			print('Expired: ', contract, amount, expire)
+		else:
+			print('Not Expired?: ', contract, amount, expire)
+			nonExpiredPremium += amount
+
+	# print(trans)
+	# print(len(trans))
+	# print(expired)
+	print(f'Premium from {cnt} closed option positions: {closedTotalPreium}')
+	print(f'Premium from {expired} expired options: {expiredPremium}')
+	print(f'Premium from NonExpired options: {nonExpiredPremium}')				 
 
 def main():
 	args = parse_args()
@@ -141,6 +220,8 @@ def main():
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
 
 	portNumber = 7050
+	if not IS_PAPER:
+		portNumber = 7060
 	s = None
 	connected = False
 	try:    
@@ -418,7 +499,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	else:
 		targetPercentageLeft *= 100
-		msg = f"The option price is greater than {targetPercentageLeft}% of the initial credit received. Remaining {remainingPerc}. Delta {current_delta}. Holding the position.", None
+		msg = f"The option price for {option_symbol} is greater than {targetPercentageLeft}% of the initial credit received. Remaining {remainingPerc}. Delta {current_delta}. Holding the position.", None
 		logger.info(msg)
 	return shouldSell
 
