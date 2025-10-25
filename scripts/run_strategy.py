@@ -1,12 +1,4 @@
-import sys
-import os
-
-# Get the absolute path to our investment modules
-module_path = os.path.abspath('C:/investment/apex') 
-
-# Add the path to sys.path
-sys.path.append(module_path)
-
+from config import *
 
 from pathlib import Path
 from core.broker_client import BrokerClient
@@ -34,7 +26,7 @@ from datetime import datetime, time
 from scipy.stats import norm
 from scipy.optimize import brentq
 import numpy as np
-from database import *
+
 import pandas as pd
 
 from config.params import IS_TEST
