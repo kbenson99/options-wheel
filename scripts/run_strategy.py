@@ -35,33 +35,6 @@ from config.params import IS_TEST
 
 RISK_FREE_RATE = 0.01
 
-# class BrokerClientInstance:
-	# _instance = None
-
-	# def __new__(cls, *args, **kwargs):
-		# if cls._instance is None:
-			# cls._instance = super().__new__(cls)
-		# return cls._instance
-
-	# def __init__(self):
-		# __init__ will be called every time, but on the same instance
-		# if not hasattr(self, '_initialized'): # Prevent re-initialization
-			# self.client = getBrokerClient()
-			# self._initialized = True
-			
-
-# def getBrokerClient():
-	# client = BrokerClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY, paper=IS_PAPER)
-	# return client
-	
-# def getStockClient():
-	# stock_data_client = StockHistoricalDataClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY)
-	# return stock_data_client
-	
-# def getTradingClient():
-	# BASE_URL = None
-	# trade_client = TradingClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY, paper=IS_PAPER, url_override=BASE_URL)
-	# return trade_client
 
 def getStrategyLogger():
 	args = parse_args()
@@ -124,12 +97,20 @@ def getSymbolSource():
 	file = Path(__file__).parent.parent / "config" / "symbol_list.txt"
 	return file
 	
-def getSymbols():
-	df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
-	symbols = df[symbolColumn.lower()].unique().tolist()
-	return symbols
+def getSymbols(fromLocal=False):
+	df = None
+	if not fromLocal:
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
+	else:
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDB)
+	# symbols = df[symbolColumn.lower()].unique().tolist()
+	return df
+
+def populateSymbolsToLocal(df):
+	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=DbVariables.MariaDB)
+	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.MariaDB)
 	
-def loadSymbols():
+def loadSymbolsFromCsv():
 	df = pd.read_csv(getSymbolSource())
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
@@ -233,11 +214,9 @@ def main():
 			# SYMBOLS = [line.strip() for line in file.readlines()]
 		
 		logger.info("Running a paper account? {}".format(IS_PAPER))
-		logger.info("Getting symbols")
-		SYMBOLS = getSymbols()
-		logger.info("Received {} symbols".format(len(SYMBOLS)))
 		
 		logger.info("Received a lock on local port {}".format(portNumber))
+		loadSymbolsFromLocal=False
 		now = datetime.now()
 		marketOpen = market_is_open(now)
 		if marketOpen:
@@ -246,6 +225,10 @@ def main():
 			opened = is_time_in_range(start_time_day, end_time_day, now.time())
 			if not opened:
 				marketOpen = False
+				
+			lastLoadFromCloud = time(10, 0)
+			if now.time() > lastLoadFromCloud:
+				loadSymbolsFromLocal = True
 		
 		if not marketOpen:
 			logger.info("Market is not open")
@@ -254,8 +237,18 @@ def main():
 		
 		if not isEnabled():
 			logger.info("NEON Sql flag set to NOT ENABLED!!!")
-			return
+			return		
 		
+		logger.info("Getting symbols")
+		df = getSymbols(loadSymbolsFromLocal)
+		if not loadSymbolsFromLocal:
+			populateSymbolsToLocal(df)
+			
+		column = symbolColumn.lower()
+		if loadSymbolsFromLocal:
+			column = symbolColumn
+		SYMBOLS = df[column].unique().tolist()
+		logger.info("Received {} symbols".format(len(SYMBOLS)))
 		
 		logger.info("NEON Sql flag set to ENABLED!!!")
 		
