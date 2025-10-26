@@ -102,13 +102,13 @@ def getSymbols(fromLocal=False):
 	if not fromLocal:
 		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
 	else:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDB)
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDbOptions)
 	# symbols = df[symbolColumn.lower()].unique().tolist()
 	return df
 
 def populateSymbolsToLocal(df):
-	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=DbVariables.MariaDB)
-	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.MariaDB)
+	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=DbVariables.MariaDbOptions)
+	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.MariaDbOptions)
 	
 def loadSymbolsFromCsv():
 	df = pd.read_csv(getSymbolSource())
@@ -126,13 +126,15 @@ def checkTrades():
 	client = AlpacaClientInstance().getClient(BrokerClient)
 	tradingClient = AlpacaClientInstance().getClient(TradingClient)
 	orders = tradingClient.get_orders(filter=request_params)
-	# print(orders)
+	print(orders)
+	print(type(orders))
 	trans = list()
 	closedTotalPreium = 0
 	cnt = 0
 	pattern = r'\d+'
 
 	for order in orders:
+		print(type(order))
 		if order.asset_class.value == 'us_option':
 		# print(order)
 
@@ -187,6 +189,35 @@ def checkTrades():
 	print(f'Premium from {expired} expired options: {expiredPremium}')
 	print(f'Premium from NonExpired options: {nonExpiredPremium}')				 
 
+def isMarketOpen():
+	# returns if market is open and where SYMBOLS should be loaded
+	now = datetime.now()
+	loadSymbolsFromLocal = False
+	marketOpen = market_is_open(now)
+	if marketOpen:
+		start_time_day = time(9, 30)  # 9:30 AM
+		end_time_day = time(16, 0) # 4:00 PM
+		opened = is_time_in_range(start_time_day, end_time_day, now.time())
+		if not opened:
+			marketOpen = False
+			
+		lastLoadFromCloud = time(10, 0)
+		if now.time() > lastLoadFromCloud:
+			loadSymbolsFromLocal = True
+	return marketOpen, loadSymbolsFromLocal
+	
+def getTradingSymbols(loadSymbolsFromLocal):
+	df = getSymbols(loadSymbolsFromLocal)
+	if not loadSymbolsFromLocal:
+		populateSymbolsToLocal(df)
+		
+	column = symbolColumn.lower()
+	if loadSymbolsFromLocal:
+		column = symbolColumn
+	symbols = df[column].unique().tolist()
+	return symbols
+		
+
 def main():
 	args = parse_args()
 	
@@ -216,20 +247,8 @@ def main():
 		logger.info("Running a paper account? {}".format(IS_PAPER))
 		
 		logger.info("Received a lock on local port {}".format(portNumber))
-		loadSymbolsFromLocal=False
-		now = datetime.now()
-		marketOpen = market_is_open(now)
-		if marketOpen:
-			start_time_day = time(9, 30)  # 9:30 AM
-			end_time_day = time(16, 0) # 4:00 PM
-			opened = is_time_in_range(start_time_day, end_time_day, now.time())
-			if not opened:
-				marketOpen = False
-				
-			lastLoadFromCloud = time(10, 0)
-			if now.time() > lastLoadFromCloud:
-				loadSymbolsFromLocal = True
-		
+		marketOpen, loadSymbolsFromLocal = isMarketOpen()
+
 		if not marketOpen:
 			logger.info("Market is not open")
 			if IS_TEST:
@@ -240,14 +259,7 @@ def main():
 			return		
 		
 		logger.info("Getting symbols")
-		df = getSymbols(loadSymbolsFromLocal)
-		if not loadSymbolsFromLocal:
-			populateSymbolsToLocal(df)
-			
-		column = symbolColumn.lower()
-		if loadSymbolsFromLocal:
-			column = symbolColumn
-		SYMBOLS = df[column].unique().tolist()
+		SYMBOLS = getTradingSymbols(loadSymbolsFromLocal)
 		logger.info("Received {} symbols".format(len(SYMBOLS)))
 		
 		logger.info("NEON Sql flag set to ENABLED!!!")

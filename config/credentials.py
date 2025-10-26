@@ -11,8 +11,8 @@ IS_PAPER = True
 
 environment = 'paper'
 
-def getConfiguration(environment):
-	df = OptionsDatabase.getDatabaseRecords(optionsConfigurationTable, False, DbVariables.MariaDB)
+def getOptionsConfiguration(environment):
+	df = OptionsDatabase.getDatabaseRecords(optionsConfigurationTable, False, DbVariables.MariaDbOptions)
 	filtered_df = df.loc[df[environmentColumn] == environment]	
 	return filtered_df
 
@@ -35,7 +35,7 @@ if known_args.live:
 # else:
 	# load_dotenv(override=True)  # Load from .env file in root
 
-configDf = getConfiguration(environment)
+configDf = getOptionsConfiguration(environment)
 ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
 ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
 
