@@ -193,7 +193,7 @@ def checkTrades():
 	if not transDf.empty:
 		# print(transDf)
 		# print(df)
-		OptionsDatabase.insertDatabaseRecords(df, optionsActivityTable, DbVariables.MariaDbOptions)
+		OptionsDatabase.insertDatabaseRecords(transDf, optionsActivityTable, DbVariables.MariaDbOptions)
 
 	now = datetime.now()
 	expired = 0
@@ -347,6 +347,7 @@ def main():
 			strat_logger.set_allowed_symbols(allowed_symbols)
 
 			logger.info(f"Current buying power is ${buying_power}")
+			# buying_power = 5000
 			
 			ownedPositions = getCurrentPositions(True)
 			sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
@@ -536,7 +537,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	else:
 		targetPercentageLeft *= 100
-		msg = f"The option price for {option_symbol} is greater than {targetPercentageLeft}% of the initial credit received. Remaining {remainingPerc}. Delta {current_delta}. Holding the position.", None
+		msg = f"The option price for {option_symbol} is greater than {targetPercent* 100}% of the initial credit received. Remaining {remainingPerc}, Original {float(option_data.avg_entry_price)}. Delta {current_delta}. Holding the position.", None
 		logger.info(msg)
 	return shouldSell
 

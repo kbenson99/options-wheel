@@ -14,8 +14,6 @@ class CLIENT(Enum):
 	BROKERCLIENT = BrokerClient
 	OPTIONCLIENT = OptionHistoricalDataClient
 
-
-
 class AlpacaClientInstance:
 	_instance = None
 	clients = dict()
@@ -35,5 +33,14 @@ class AlpacaClientInstance:
 			# self._initialized = True
 	def getClient(self, clienttype):
 		if clienttype not in self.clients:
-			self.clients[clienttype] = clienttype(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY)
+			# clienttype == CLIENT.BROKERCLIENT
+			# print(clienttype)
+			# print(BrokerClient)
+
+			kwargs = {'api_key': ALPACA_API_KEY, 'secret_key': ALPACA_SECRET_KEY}
+			if clienttype in [ BrokerClient, TradingClient ]:
+				# print(ALPACA_API_KEY)
+				# print(ALPACA_SECRET_KEY)
+				kwargs['paper'] = IS_PAPER
+			self.clients[clienttype] = clienttype(**kwargs)
 		return self.clients[clienttype]

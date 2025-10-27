@@ -54,6 +54,7 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
 			# print(p)
+			# IS_TEST = True
 			try:				
 				if not IS_TEST:
 					client.market_sell(p.symbol)
