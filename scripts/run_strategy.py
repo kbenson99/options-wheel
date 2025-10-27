@@ -10,7 +10,7 @@ import re
 
 from core.execution import sell_puts, sell_calls
 from core.state_manager import update_state, calculate_risk
-from config.credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY, IS_PAPER
+from config.credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY, IS_PAPER, ENVIRONMENT
 from config.params import MAX_RISK
 from logging.strategy_logger import StrategyLogger
 from logging.logger_setup import setup_logger
@@ -30,6 +30,7 @@ from scipy.optimize import brentq
 import numpy as np
 
 import pandas as pd
+import pickle
 
 from config.params import IS_TEST
 
@@ -88,10 +89,17 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 				data[p.symbol] = p
 		return data
 		
-def isEnabled():
-	data = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
-	active = data.iloc(0)[0].active
-	return active.upper() == 'Y'
+def isEnabled(environment):
+	active = False
+	df = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
+	# print(df)
+	
+	if not df.empty:
+		rec = df.loc[df[environmentColumn ] == environment, 'active'] 
+		if not rec.empty:
+			rec = rec.iloc[0]
+			active = rec.upper() == 'Y'
+	return active
 
 def getSymbolSource():
 	file = Path(__file__).parent.parent / "config" / "symbol_list.txt"
@@ -100,15 +108,19 @@ def getSymbolSource():
 def getSymbols(fromLocal=False):
 	df = None
 	if not fromLocal:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, True)
 	else:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDbOptions)
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, True, db=DbVariables.MariaDbOptions)
 	# symbols = df[symbolColumn.lower()].unique().tolist()
 	return df
 
 def populateSymbolsToLocal(df):
 	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=DbVariables.MariaDbOptions)
-	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.MariaDbOptions)
+	df_renamed = df.rename(columns={symbolColumn.lower(): symbolColumn, creationTimestampColumn.lower(): creationTimestampColumn})
+	# print(df_renamed)
+	df_new = df_renamed.drop(creationTimestampColumn, axis=1)
+	# print(df_new)
+	OptionsDatabase.insertDatabaseRecords(df_new, optionsSymbolsTable, DbVariables.MariaDbOptions)
 	
 def loadSymbolsFromCsv():
 	df = pd.read_csv(getSymbolSource())
@@ -116,6 +128,10 @@ def loadSymbolsFromCsv():
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 	
 def checkTrades():
+	column_names = [environmentColumn, optionsKeyColumn, optionsActivityBlobColumn]
+	
+	df = pd.DataFrame(columns=column_names)
+
 	request_params = GetOrdersRequest(
                     limit=500,
                     status=QueryOrderStatus.ALL
@@ -126,19 +142,22 @@ def checkTrades():
 	client = AlpacaClientInstance().getClient(BrokerClient)
 	tradingClient = AlpacaClientInstance().getClient(TradingClient)
 	orders = tradingClient.get_orders(filter=request_params)
-	print(orders)
-	print(type(orders))
+	# print(orders)
+	
 	trans = list()
 	closedTotalPreium = 0
 	cnt = 0
 	pattern = r'\d+'
-
+	print(len(orders))
 	for order in orders:
-		print(type(order))
-		if order.asset_class.value == 'us_option':
 		# print(order)
+		# print(type(order.id))
+		if order.asset_class.value == 'us_option':
+			# print(order)
+			pickled_instance = pickle.dumps(order)
+				
+			df.loc[len(df)] = [ENVIRONMENT, str(order.id), pickled_instance]
 
-		# print(amount)
 			if order.filled_avg_price:
 				amount = float(order.filled_qty) * float(order.filled_avg_price) * 100
 
@@ -161,12 +180,24 @@ def checkTrades():
 					# print(f'Position {order.symbol} closed with a buy price of {amount} and original premium of {premium}')
 					# print(order.symbol, order.created_at, amount + premium)
 					closedTotalPreium += amount + premium
-				cnt += 1
+					cnt += 1
+		# else:
+			# print(order.symbol, order)
 	# print(total, cnt)
-	print(len(trans))
+	# print(len(trans))
+	currentDbRecords = OptionsDatabase.getDatabaseRecords(optionsActivityTable, db=DbVariables.MariaDbOptions)
+	alreadyCaptured = currentDbRecords[optionsKeyColumn].unique().tolist()
+	# print(alreadyCaptured)
+	transDf = df[~df[optionsKeyColumn].isin(alreadyCaptured)]
+	# print(transDf)
+	if not transDf.empty:
+		# print(transDf)
+		# print(df)
+		OptionsDatabase.insertDatabaseRecords(df, optionsActivityTable, DbVariables.MariaDbOptions)
 
 	now = datetime.now()
 	expired = 0
+	nonExpired = 0
 	expiredPremium = 0
 	nonExpiredPremium = 0
 	for rec in trans:
@@ -181,13 +212,14 @@ def checkTrades():
 		else:
 			print('Not Expired?: ', contract, amount, expire)
 			nonExpiredPremium += amount
+			nonExpired += 1
 
 	# print(trans)
 	# print(len(trans))
 	# print(expired)
 	print(f'Premium from {cnt} closed option positions: {closedTotalPreium}')
 	print(f'Premium from {expired} expired options: {expiredPremium}')
-	print(f'Premium from NonExpired options: {nonExpiredPremium}')				 
+	print(f'Premium from {nonExpired} NonExpired options: {nonExpiredPremium}')				 
 
 def isMarketOpen():
 	# returns if market is open and where SYMBOLS should be loaded
@@ -254,15 +286,15 @@ def main():
 			if IS_TEST:
 				logger.info("Running TESTS even though market is not open")
 		
-		if not isEnabled():
-			logger.info("NEON Sql flag set to NOT ENABLED!!!")
+		if not isEnabled(ENVIRONMENT):
+			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
 			return		
 		
 		logger.info("Getting symbols")
 		SYMBOLS = getTradingSymbols(loadSymbolsFromLocal)
 		logger.info("Received {} symbols".format(len(SYMBOLS)))
 		
-		logger.info("NEON Sql flag set to ENABLED!!!")
+		logger.info(f"NEON Sql flag set to ENABLED for {ENVIRONMENT} environment!!!")
 		
 		if marketOpen or IS_TEST:
 			if args.fresh_start:

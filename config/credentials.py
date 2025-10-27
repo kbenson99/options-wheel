@@ -8,8 +8,7 @@ import pandas as pd
 ALPACA_API_KEY = None
 ALPACA_SECRET_KEY = None
 IS_PAPER = True
-
-environment = 'paper'
+ENVIRONMENT = 'paper'
 
 def getOptionsConfiguration(environment):
 	df = OptionsDatabase.getDatabaseRecords(optionsConfigurationTable, False, DbVariables.MariaDbOptions)
@@ -27,7 +26,7 @@ known_args, unknown_args = parser.parse_known_args()
 
 # Access the parsed arguments
 if known_args.live:
-	environment = 'production'
+	ENVIRONMENT = 'production'
 	IS_PAPER = False
 	# dotenv_path = '.env-prod'
 	# load_dotenv(dotenv_path=dotenv_path, override=True)
@@ -35,7 +34,7 @@ if known_args.live:
 # else:
 	# load_dotenv(override=True)  # Load from .env file in root
 
-configDf = getOptionsConfiguration(environment)
+configDf = getOptionsConfiguration(ENVIRONMENT)
 ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
 ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
 
