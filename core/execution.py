@@ -49,7 +49,7 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				break
 				
 			if p.bid_price <= MINIMUM_PREMIUM:
-				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower than our target {MINIMUM_PREMIUM}")
+				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower or less than our target {MINIMUM_PREMIUM}")
 				continue
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")

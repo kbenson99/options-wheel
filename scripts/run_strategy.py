@@ -15,6 +15,7 @@ from config.params import MAX_RISK
 from logging.strategy_logger import StrategyLogger
 from logging.logger_setup import setup_logger
 from core.cli_args import parse_args
+from zoneinfo import ZoneInfo
 
 from alpaca.trading.enums import ContractType, AssetStatus, AssetClass, QueryOrderStatus
 
@@ -30,12 +31,14 @@ from scipy.optimize import brentq
 import numpy as np
 
 import pandas as pd
+pd.options.mode.chained_assignment = None
 import pickle
 
 from config.params import IS_TEST
 
 RISK_FREE_RATE = 0.01
 
+pattern = r'\d+'
 
 def getStrategyLogger():
 	args = parse_args()
@@ -127,7 +130,55 @@ def loadSymbolsFromCsv():
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 	
+
+# Get the latest price of the underlying stock
+def get_underlying_price(symbol, stock_data_client=None):
+	if type(symbol) == str:
+		symbol = symbol.split(",")
+		x = set(symbol)
+		symbol = list(x)
+	else:
+		x = set(symbol)
+		symbol = list(x)
+		symbol = ",".join(symbol)
+		print(symbol)
+
+	# Set the timezone
+	timezone = ZoneInfo("America/New_York")
+	# Get current date in US/Eastern timezone
+	today = datetime.now(timezone).date()
+	# Get the latest trade for the underlying stock
+	underlying_trade_request = StockLatestTradeRequest(symbol_or_symbols=symbol)
+	if not stock_data_client:
+		stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
+	return underlying_trade_response	
+  
+def getUnderlyingSymbol(symbol):
+	match = re.search(pattern, symbol)
+	underlying_symbol = symbol[0:match.start()]
+	return underlying_symbol
+
+def getSymbolStrikeAndType(symbol):
+	match = re.search(pattern, symbol)
+	strike = symbol[match.end()+1:]
+	optionType = symbol[match.end():match.end()+1]
+	# print(strike)
+	return optionType, float(strike)/1000
+
+def getExpiration(symbol):
+	match = re.search(pattern, symbol)
+	expireStr = symbol[match.start():match.end()]
+	year = 2000 + int(expireStr[0:2])
+	month = int(expireStr[2:4])
+	day = int(expireStr[4:6])
+
+	expires = datetime(year, month, day)
+	return expires
+  
 def checkTrades():
+	logger = getLogger() # standard Python logger used for general runtime messages, debugging, and error reporting.
+	
 	column_names = [environmentColumn, optionsKeyColumn, optionsActivityBlobColumn]
 	
 	df = pd.DataFrame(columns=column_names)
@@ -143,9 +194,10 @@ def checkTrades():
 	tradingClient = AlpacaClientInstance().getClient(TradingClient)
 	orders = tradingClient.get_orders(filter=request_params)
 	# print(orders)
+	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
 	
-	trans = list()
-	closedTotalPreium = 0
+	testing = dict()
+	closedTotalPremium = 0
 	cnt = 0
 	pattern = r'\d+'
 	print(len(orders))
@@ -161,37 +213,34 @@ def checkTrades():
 			if order.filled_avg_price:
 				amount = float(order.filled_qty) * float(order.filled_avg_price) * 100
 
+				# if order.symbol == 'SMR250711P00036000':
+					# print(order)
 				if order.side == 'sell':
 					# print(order.symbol)
-					match = re.search(pattern, order.symbol)
-					expireStr = order.symbol[match.start():match.end()]
-					year = 2000 + int(expireStr[0:2])
-					month = int(expireStr[2:4])
-					day = int(expireStr[4:6])
-
-					expires = datetime(year, month, day)
-					trans.append((order.symbol, amount, expires))
+					expires = getExpiration(order.symbol)
+					# if order.symbol == 'SNAP251031P00008000':
+						# print(order)
+						# print(expires)
+					testing[order.symbol] = (order.symbol, float(order.filled_qty),  float(order.filled_avg_price), amount, expires)
 				if order.side == 'buy':
-					amount = amount * -1
-					index  = [index for (index, item) in enumerate(trans) if item[0] == order.symbol]
-					# print(index)
-					# index = trans.index(order.symbol)
-					sold, premium, expires = trans.pop(index[0])
-					# print(f'Position {order.symbol} closed with a buy price of {amount} and original premium of {premium}')
-					# print(order.symbol, order.created_at, amount + premium)
-					closedTotalPreium += amount + premium
-					cnt += 1
-		# else:
-			# print(order.symbol, order)
-	# print(total, cnt)
-	# print(len(trans))
+					if order.symbol in testing:
+						symbol, quantity, filled_avg_price, premium, expires = testing.pop(order.symbol)
+						# print(symbol)
+						
+						amount = amount * -1
+						logger.info(f'Closed {symbol} position for a net amount of {round(amount + premium, 2)}')
+						closedTotalPremium += amount + premium
+						cnt += 1
+
+	# print(testing)
+	# print(len(testing))
 	currentDbRecords = OptionsDatabase.getDatabaseRecords(optionsActivityTable, db=DbVariables.MariaDbOptions)
 	alreadyCaptured = currentDbRecords[optionsKeyColumn].unique().tolist()
 	# print(alreadyCaptured)
 	transDf = df[~df[optionsKeyColumn].isin(alreadyCaptured)]
 	# print(transDf)
 	if not transDf.empty:
-		# print(transDf)
+		print(transDf)
 		# print(df)
 		OptionsDatabase.insertDatabaseRecords(transDf, optionsActivityTable, DbVariables.MariaDbOptions)
 
@@ -200,26 +249,30 @@ def checkTrades():
 	nonExpired = 0
 	expiredPremium = 0
 	nonExpiredPremium = 0
-	for rec in trans:
-		contract, amount, expire = rec
-		if expire.date() < now.date():
-			expired += 1
-			index  = [index for (index, item) in enumerate(trans) if item[0] == contract]
-			sold, premium, expires = trans.pop(index[0])
+	for symbol in testing:
+		symbol, quantity, filled_avg_price, premium, expires = testing[symbol]
+		if expires.date() < now.date():
 			expiredPremium += premium
 			expired += 1
-			print('Expired: ', contract, amount, expire)
+			logger.info(f'Expired: {symbol} {premium} {expires}')
 		else:
-			print('Not Expired?: ', contract, amount, expire)
-			nonExpiredPremium += amount
+			logger.info(f'NOT Expired: {symbol} {premium} {expires}')
+			contractType, strike = getSymbolStrikeAndType(symbol)
+			stock = getUnderlyingSymbol(symbol)
+			currentPrice = get_underlying_price(stock, stock_data_client)
+			if contractType == 'P':
+				if currentPrice[stock].price < strike:
+					logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+			if contractType == 'C':
+				if currentPrice[stock].price > strike:
+					logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+					
+			nonExpiredPremium += premium
 			nonExpired += 1
 
-	# print(trans)
-	# print(len(trans))
-	# print(expired)
-	print(f'Premium from {cnt} closed option positions: {closedTotalPreium}')
-	print(f'Premium from {expired} expired options: {expiredPremium}')
-	print(f'Premium from {nonExpired} NonExpired options: {nonExpiredPremium}')				 
+	logger.info(f'Premium from {cnt} closed option positions: {closedTotalPremium}')
+	logger.info(f'Premium from {expired} expired options: {expiredPremium}')
+	logger.info(f'Premium from {nonExpired} NonExpired options: {nonExpiredPremium}')				 
 
 def isMarketOpen():
 	# returns if market is open and where SYMBOLS should be loaded
@@ -466,10 +519,10 @@ def roll_rinse_option(option_data, rolling=True):
 	strike_price = float(currentOptionContract.strike_price)
 	expiry = pd.Timestamp(currentOptionContract.expiration_date)
 
-	print(f"option_symbol is {option_symbol}")
-	print(f"current option_price is {current_option_price}")
-	print(f"Original option price is {option_data.avg_entry_price}")
-	print(f"current strike price is {strike_price}")
+	logger.info(f"option_symbol is {option_symbol}")
+	logger.info(f"current option_price is {current_option_price}")
+	logger.info(f"Original option price is {option_data.avg_entry_price}")
+	logger.info(f"current strike price is {strike_price}")
 	
 	remainingPerc = current_option_price / float(option_data.avg_entry_price)
 	
@@ -479,7 +532,7 @@ def roll_rinse_option(option_data, rolling=True):
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
 	
 	underlying_price = underlying_trade_response[currentOptionContract.root_symbol].price
-	print(f"Current price for {currentOptionContract.root_symbol} is {underlying_price}")
+	logger.info(f"Current price for {currentOptionContract.root_symbol} is {underlying_price}")
 	
 
 	# Deternine if the option is a call or put
