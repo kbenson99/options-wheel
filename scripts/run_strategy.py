@@ -1,4 +1,5 @@
 from config import *
+# from py_alpaca_api import PyAlpacaAPI
 
 from pathlib import Path
 from core.broker_client import BrokerClient
@@ -8,9 +9,11 @@ from alpaca.data.requests import OptionLatestQuoteRequest
 from alpaca.trading.requests import GetOrdersRequest
 import re
 
+# from .py_alpaca_api import PyAlpacaAPI
+
 from core.execution import sell_puts, sell_calls
 from core.state_manager import update_state, calculate_risk
-from config.credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY, IS_PAPER, ENVIRONMENT
+from config.credentials import ALPACA_API_KEY, ALPACA_SECRET_KEY, IS_PAPER, ENVIRONMENT, getOptionsConfiguration
 from config.params import MAX_RISK
 from logging.strategy_logger import StrategyLogger
 from logging.logger_setup import setup_logger
@@ -32,6 +35,7 @@ import numpy as np
 
 import pandas as pd
 pd.options.mode.chained_assignment = None
+
 import pickle
 
 from config.params import IS_TEST
@@ -130,6 +134,35 @@ def loadSymbolsFromCsv():
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 	
+def testTexas(environment: str = "paper"):
+	valid_env = ["paper", "production"]
+	if environment not in valid_env:
+		raise ValidationError(
+			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
+		)
+
+	configDf = getOptionsConfiguration(environment)
+	ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
+	ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
+	print(environment=='paper')
+	# Initialize with your API credentials
+	api = PyAlpacaAPI(
+		api_key=ALPACA_API_KEY,
+		api_secret=ALPACA_SECRET_KEY,
+		api_paper=environment=='paper'  # Use paper trading for testing
+	)
+	
+	account = api.trading.account.get()
+	print(f"Account Balance: ${account.cash}")
+	print(f"Buying Power: ${account.buying_power}")
+	print(account)
+	
+	config = api.trading.account.get_configuration()
+	print(f"PDT Check: {config.pdt_check}")
+	print(f"Trade Confirm Email: {config.trade_confirm_email}")
+	print(f"Suspend Trade: {config.suspend_trade}")
+	print(f"No Shorting: {config.no_shorting}")	
+	print(config)
 
 # Get the latest price of the underlying stock
 def get_underlying_price(symbol, stock_data_client=None):
@@ -141,7 +174,7 @@ def get_underlying_price(symbol, stock_data_client=None):
 		x = set(symbol)
 		symbol = list(x)
 		symbol = ",".join(symbol)
-		print(symbol)
+		# print(symbol)
 
 	# Set the timezone
 	timezone = ZoneInfo("America/New_York")
@@ -176,7 +209,19 @@ def getExpiration(symbol):
 	expires = datetime(year, month, day)
 	return expires
   
-def checkTrades():
+def checkTrades(environment: str = "paper"):
+	# valid_env = ["paper", "production"]
+	# if environment not in valid_env:
+		# raise ValidationError(
+			# f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
+		# )
+
+	# configDf = getOptionsConfiguration(environment)
+	# ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
+	# ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
+	# IS_PAPER = environment == 'paper'
+	# print(ALPACA_API_KEY)
+	
 	logger = getLogger() # standard Python logger used for general runtime messages, debugging, and error reporting.
 	
 	column_names = [environmentColumn, optionsKeyColumn, optionsActivityBlobColumn]
@@ -189,14 +234,14 @@ def checkTrades():
                     ,direction='asc'
                     # ,side=OrderSide.SELL
                  )
-				 
-	client = AlpacaClientInstance().getClient(BrokerClient)
+	
 	tradingClient = AlpacaClientInstance().getClient(TradingClient)
 	orders = tradingClient.get_orders(filter=request_params)
 	# print(orders)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
 	
 	testing = dict()
+	losers = 0
 	closedTotalPremium = 0
 	cnt = 0
 	pattern = r'\d+'
@@ -224,10 +269,14 @@ def checkTrades():
 					testing[order.symbol] = (order.symbol, float(order.filled_qty),  float(order.filled_avg_price), amount, expires)
 				if order.side == 'buy':
 					if order.symbol in testing:
+						# get corresponding sell
 						symbol, quantity, filled_avg_price, premium, expires = testing.pop(order.symbol)
 						# print(symbol)
 						
 						amount = amount * -1
+						net = amount + premium
+						if net < 0:
+							losers += 1
 						logger.info(f'Closed {symbol} position for a net amount of {round(amount + premium, 2)}')
 						closedTotalPremium += amount + premium
 						cnt += 1
@@ -246,7 +295,8 @@ def checkTrades():
 
 	now = datetime.now()
 	expired = 0
-	nonExpired = 0
+	nonExpiredCnt = 0
+	nonExpired = dict()
 	expiredPremium = 0
 	nonExpiredPremium = 0
 	for symbol in testing:
@@ -257,22 +307,29 @@ def checkTrades():
 			logger.info(f'Expired: {symbol} {premium} {expires}')
 		else:
 			logger.info(f'NOT Expired: {symbol} {premium} {expires}')
-			contractType, strike = getSymbolStrikeAndType(symbol)
 			stock = getUnderlyingSymbol(symbol)
-			currentPrice = get_underlying_price(stock, stock_data_client)
-			if contractType == 'P':
-				if currentPrice[stock].price < strike:
-					logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
-			if contractType == 'C':
-				if currentPrice[stock].price > strike:
-					logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
-					
-			nonExpiredPremium += premium
-			nonExpired += 1
+			nonExpired[symbol] = stock
 
+			nonExpiredPremium += premium
+			nonExpiredCnt += 1
+
+	logger.info(40 * '-')
+	currentPrice = get_underlying_price(nonExpired.values(), stock_data_client)
+	for symbol in nonExpired:
+		contractType, strike = getSymbolStrikeAndType(symbol)
+		stock = getUnderlyingSymbol(symbol)
+		if contractType == 'P':
+			if currentPrice[stock].price < strike:
+				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+		if contractType == 'C':
+			if currentPrice[stock].price > strike:
+				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+	
+	logger.info(40 * '-')	
 	logger.info(f'Premium from {cnt} closed option positions: {closedTotalPremium}')
+	logger.info(f'Count of losers = {losers}')
 	logger.info(f'Premium from {expired} expired options: {expiredPremium}')
-	logger.info(f'Premium from {nonExpired} NonExpired options: {nonExpiredPremium}')				 
+	logger.info(f'Premium from {nonExpiredCnt} NonExpired options: {nonExpiredPremium}')				 
 
 def isMarketOpen():
 	# returns if market is open and where SYMBOLS should be loaded
@@ -390,7 +447,7 @@ def main():
 						sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
-				print(allowed_symbols)
+				# print(allowed_symbols)
 				
 				buying_power = float(tradingClient.get_account().buying_power)
 				

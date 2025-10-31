@@ -10,7 +10,7 @@ from core.clients import *
 
 from alpaca.trading.enums import AssetClass
 
-from config.params import IS_TEST, MINIMUM_PREMIUM
+from config.params import IS_TEST, MINIMUM_PREMIUM, DELTA_MIN, DELTA_MAX, YIELD_MIN, YIELD_MAX, OPEN_INTEREST_MIN, SCORE_MIN
 
 logger = logging.getLogger(f"strategy.{__name__}")
 
@@ -29,7 +29,13 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 		logger.info("No symbols found with sufficient buying power.")
 		return
 	option_contracts = client.get_options_contracts(filtered_symbols, 'put')
-	snapshots = client.get_option_snapshot([c.symbol for c in option_contracts])
+	
+	recs = list()
+	for option in option_contracts:
+		if option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
+			recs.append(option.symbol)
+	snapshots = client.get_option_snapshot(recs)
+	# print(len(snapshots))
 	put_options = filter_options([Contract.from_contract_snapshot(contract, snapshots.get(contract.symbol, None)) for contract in option_contracts if snapshots.get(contract.symbol, None)])
 	if strat_logger:
 		strat_logger.log_put_options([p.to_dict() for p in put_options])
@@ -37,6 +43,7 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 	if put_options:
 		logger.info("Scoring put options...")
 		scores = score_options(put_options)
+		# logger.info(scores)
 		put_options = select_options(put_options, scores)
 		for p in put_options:
 			print(p)
@@ -85,13 +92,27 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		raise ValueError(msg)
 
 	logger.info(f"Searching for call options on {symbol}...")
-	call_options = filter_options([Contract.from_contract(option, client) for option in client.get_options_contracts([symbol], 'call')], purchase_price)
-	if strat_logger:
-		strat_logger.log_call_options([c.to_dict() for c in call_options])
-
+	potential = client.get_options_contracts([symbol], 'call')
+	
 	bollingerBands = getBollingerBands(symbol, stock_data_client)
 	upperBollinger, lowerBollinger = bollingerBands
 	logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
+	
+	recs = list()
+	for option in potential:
+		if option.strike_price > upperBollinger and option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
+			recs.append(option.symbol)
+			# print(option)
+	
+	logger.info(f'Testing {len(recs)} options for {symbol}')
+	snapshots = client.get_option_snapshot(recs)
+	
+	# print(ppp)
+	call_options = filter_options([Contract.from_contract_snapshot(contract, snapshots.get(contract.symbol, None)) for contract in potential if snapshots.get(contract.symbol, None)])
+	# call_options = filter_options([Contract.from_contract(option, client) for option in ppp], purchase_price)
+
+	if strat_logger:
+		strat_logger.log_call_options([c.to_dict() for c in call_options])
 	
 	if call_options:
 		scores = score_options(call_options)
