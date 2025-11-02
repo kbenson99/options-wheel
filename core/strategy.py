@@ -5,6 +5,8 @@ from datetime import *
 from zoneinfo import ZoneInfo
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
+import yfinance as yf
+
 def filter_underlying(client, symbols, buying_power_limit):
     """
     Filter underlying symbols based on buying power.  Can add custom logic such as volatility or ranging / support metrics.
@@ -39,7 +41,46 @@ def score_options(options):
     scores = [(1 - abs(p.delta)) * (250 / (p.dte + 5)) * (p.bid_price / p.strike) for p in options]
     return scores
 
-def getBollingerBands(underlying_symbol, stock_data_client=None):
+def getBollingerBands(ticker, window=20, num_std=2):
+	"""
+	Calculates Bollinger Bands for a given price series.
+	
+	Args:
+		data (pd.Series): The historical stock price data (usually 'Close' prices).
+		window (int): The lookback period for the moving average and standard deviation.
+		num_std (int): The number of standard deviations for the bands.
+		
+	Returns:
+		pd.DataFrame: DataFrame with the original price, middle, upper, and lower bands.
+	"""
+	
+	# Step 1: Fetch stock data
+	start = datetime.now()
+	end = start - timedelta(days=60)
+	
+	data = yf.download(ticker, start=end.strftime('%Y-%m-%d'), end=start.strftime('%Y-%m-%d'), auto_adjust=True, progress=False)
+	
+	# Calculate the rolling mean (middle band)
+	data['SMA'] = data['Close'].rolling(window=window).mean()
+	
+	# Calculate the rolling standard deviation (use ddof=0 for population standard deviation)
+	data['STD'] = data['Close'].rolling(window=window).std(ddof=0)
+	
+	# Calculate the upper and lower bands
+	data['Upper'] = data['SMA'] + (data['STD'] * num_std)
+	data['Lower'] = data['SMA'] - (data['STD'] * num_std)
+ 
+
+	# Get the most recent Upper and Lower Band values
+	upper_bollinger_band = data['Upper'].iloc[-1]
+	lower_bollinger_band = data['Lower'].iloc[-1]
+
+	# print(f"Latest Upper Bollinger Band is: {upper_bollinger_band}")
+	# print(f"Latest Lower Bollinger Band is: {lower_bollinger_band}")
+	return upper_bollinger_band, lower_bollinger_band
+
+	
+def getBollingerBandsOld(underlying_symbol, stock_data_client=None):
 	# setup stock historical data client
 	timezone = ZoneInfo("America/New_York")
 

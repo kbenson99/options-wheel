@@ -13,10 +13,10 @@ sys.path.append(module_path)
 # Get the absolute path to the directory containing your package
 # For example, if your package is in 'parent_directory/my_package'
 # and your current script is in 'current_directory', you might do:
-# package_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+package_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Add the directory to sys.path
-# sys.path.insert(0, package_dir) # Insert at the beginning for higher priority
+sys.path.insert(0, package_dir) # Insert at the beginning for higher priority
 # print(sys.path)
 
 from database import *

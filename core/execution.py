@@ -18,7 +18,7 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 	"""
 	Scan allowed symbols and sell short puts up to the buying power limit.
 	"""
-	# buying_power=20000
+	# buying_power=2500
 	if not allowed_symbols or buying_power <= 0:
 		return
 
@@ -50,16 +50,25 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 			if p.symbol in ownedPositions:
 				logger.info(f"We already own {p.symbol}.  Skipping!")
 				continue
-			
-			buying_power -= 100 * p.strike 
-			if buying_power < 0:
-				break
 				
 			if p.bid_price <= MINIMUM_PREMIUM:
 				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower or less than our target {MINIMUM_PREMIUM}")
 				continue
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
+			
+			upperBollinger, lowerBollinger = getBollingerBands(p.underlying) #, stock_data_client)
+			
+			if p.strike > lowerBollinger:
+				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
+				continue
+			else:
+				logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}')
+				
+			buying_power -= 100 * p.strike 
+			if buying_power < 0:
+				break		
+			
 			# print(p)
 			# IS_TEST = True
 			try:				
@@ -94,7 +103,7 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 	logger.info(f"Searching for call options on {symbol}...")
 	potential = client.get_options_contracts([symbol], 'call')
 	
-	bollingerBands = getBollingerBands(symbol, stock_data_client)
+	bollingerBands = getBollingerBands(symbol) #, stock_data_client)
 	upperBollinger, lowerBollinger = bollingerBands
 	logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
 	

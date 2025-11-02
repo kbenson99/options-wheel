@@ -1,5 +1,5 @@
 from config import *
-# from py_alpaca_api import PyAlpacaAPI
+from py_alpaca_api import PyAlpacaAPI
 
 from pathlib import Path
 from core.broker_client import BrokerClient
@@ -115,42 +115,43 @@ def getSymbolSource():
 def getSymbols(fromLocal=False):
 	df = None
 	if not fromLocal:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, True)
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
 	else:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, True, db=DbVariables.MariaDbOptions)
+		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDbOptions)
 	# symbols = df[symbolColumn.lower()].unique().tolist()
 	return df
 
-def populateSymbolsToLocal(df):
-	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=DbVariables.MariaDbOptions)
+def syncSymbols(df, service=DbVariables.MariaDbOptions):
+	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=service)
 	df_renamed = df.rename(columns={symbolColumn.lower(): symbolColumn, creationTimestampColumn.lower(): creationTimestampColumn})
 	# print(df_renamed)
 	df_new = df_renamed.drop(creationTimestampColumn, axis=1)
 	# print(df_new)
-	OptionsDatabase.insertDatabaseRecords(df_new, optionsSymbolsTable, DbVariables.MariaDbOptions)
+	OptionsDatabase.insertDatabaseRecords(df_new, optionsSymbolsTable, db=service)
 	
 def loadSymbolsFromCsv():
 	df = pd.read_csv(getSymbolSource())
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
-	
-def testTexas(environment: str = "paper"):
+
+def getPyAlpacaClient(environment: str = "paper"):
 	valid_env = ["paper", "production"]
 	if environment not in valid_env:
 		raise ValidationError(
 			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
 		)
 
-	configDf = getOptionsConfiguration(environment)
-	ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
-	ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
-	print(environment=='paper')
+	key, secret = getOptionsConfiguration(environment)
 	# Initialize with your API credentials
 	api = PyAlpacaAPI(
-		api_key=ALPACA_API_KEY,
-		api_secret=ALPACA_SECRET_KEY,
+		api_key=key,
+		api_secret=secret,
 		api_paper=environment=='paper'  # Use paper trading for testing
 	)
+	return api
+	
+def testTexas(environment: str = "paper"):	
+	api = getPyAlpacaClient(environment)
 	
 	account = api.trading.account.get()
 	print(f"Account Balance: ${account.cash}")
@@ -210,18 +211,12 @@ def getExpiration(symbol):
 	return expires
   
 def checkTrades(environment: str = "paper"):
-	# valid_env = ["paper", "production"]
-	# if environment not in valid_env:
-		# raise ValidationError(
-			# f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
-		# )
+	valid_env = ["paper", "production"]
+	if environment not in valid_env:
+		raise ValidationError(
+			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
+		)
 
-	# configDf = getOptionsConfiguration(environment)
-	# ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
-	# ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
-	# IS_PAPER = environment == 'paper'
-	# print(ALPACA_API_KEY)
-	
 	logger = getLogger() # standard Python logger used for general runtime messages, debugging, and error reporting.
 	
 	column_names = [environmentColumn, optionsKeyColumn, optionsActivityBlobColumn]
@@ -235,16 +230,17 @@ def checkTrades(environment: str = "paper"):
                     # ,side=OrderSide.SELL
                  )
 	
-	tradingClient = AlpacaClientInstance().getClient(TradingClient)
+	tradingClient = AlpacaClientInstance().getClient(TradingClient, environment)
 	orders = tradingClient.get_orders(filter=request_params)
 	# print(orders)
-	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, environment)
 	
 	testing = dict()
 	losers = 0
 	closedTotalPremium = 0
 	cnt = 0
 	pattern = r'\d+'
+	# print(orders)
 	print(len(orders))
 	for order in orders:
 		# print(order)
@@ -283,7 +279,7 @@ def checkTrades(environment: str = "paper"):
 
 	# print(testing)
 	# print(len(testing))
-	currentDbRecords = OptionsDatabase.getDatabaseRecords(optionsActivityTable, db=DbVariables.MariaDbOptions)
+	currentDbRecords = OptionsDatabase.getDatabaseRecords(optionsOrdersTable, db=DbVariables.MariaDbOptions)
 	alreadyCaptured = currentDbRecords[optionsKeyColumn].unique().tolist()
 	# print(alreadyCaptured)
 	transDf = df[~df[optionsKeyColumn].isin(alreadyCaptured)]
@@ -291,7 +287,7 @@ def checkTrades(environment: str = "paper"):
 	if not transDf.empty:
 		print(transDf)
 		# print(df)
-		OptionsDatabase.insertDatabaseRecords(transDf, optionsActivityTable, DbVariables.MariaDbOptions)
+		OptionsDatabase.insertDatabaseRecords(transDf, optionsOrdersTable, DbVariables.MariaDbOptions)
 
 	now = datetime.now()
 	expired = 0
@@ -325,9 +321,13 @@ def checkTrades(environment: str = "paper"):
 			if currentPrice[stock].price > strike:
 				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 	
+	api = getPyAlpacaClient(environment)
+	assigned = api.trading.account.activities('OPASN')
+	
 	logger.info(40 * '-')	
 	logger.info(f'Premium from {cnt} closed option positions: {closedTotalPremium}')
 	logger.info(f'Count of losers = {losers}')
+	logger.info(f'Count of assignments = {len(assigned)}')
 	logger.info(f'Premium from {expired} expired options: {expiredPremium}')
 	logger.info(f'Premium from {nonExpiredCnt} NonExpired options: {nonExpiredPremium}')				 
 
@@ -351,7 +351,7 @@ def isMarketOpen():
 def getTradingSymbols(loadSymbolsFromLocal):
 	df = getSymbols(loadSymbolsFromLocal)
 	if not loadSymbolsFromLocal:
-		populateSymbolsToLocal(df)
+		syncSymbols(df)
 		
 	column = symbolColumn.lower()
 	if loadSymbolsFromLocal:
@@ -480,7 +480,7 @@ def testSellCall(symbol):
 	client = AlpacaClientInstance().getClient(TradingClient)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
 	
-	upperBollinger = getBollingerBands(symbol, stock_data_client)
+	upperBollinger = getBollingerBands(symbol)
 	
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
 	print(f"Current price for {symbol} is {underlying_trade_response[symbol].price}")

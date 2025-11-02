@@ -12,8 +12,10 @@ ENVIRONMENT = 'paper'
 
 def getOptionsConfiguration(environment):
 	df = OptionsDatabase.getDatabaseRecords(optionsConfigurationTable, False, DbVariables.MariaDbOptions)
-	filtered_df = df.loc[df[environmentColumn] == environment]	
-	return filtered_df
+	filtered_df = df.loc[df[environmentColumn] == environment]
+	key = filtered_df[optionsKeyColumn].values[0]
+	secret = filtered_df[optionsSecretColumn].values[0]
+	return key, secret
 
 # Create an ArgumentParser object
 parser = argparse.ArgumentParser(description="Control if to run test or live")
@@ -34,9 +36,7 @@ if known_args.live:
 # else:
 	# load_dotenv(override=True)  # Load from .env file in root
 
-configDf = getOptionsConfiguration(ENVIRONMENT)
-ALPACA_API_KEY = configDf[optionsKeyColumn].values[0]
-ALPACA_SECRET_KEY = configDf[optionsSecretColumn].values[0]
+ALPACA_API_KEY, ALPACA_SECRET_KEY =  getOptionsConfiguration(ENVIRONMENT)
 
 # ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
 # ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
