@@ -38,7 +38,7 @@ pd.options.mode.chained_assignment = None
 
 import pickle
 
-from config.params import IS_TEST
+from config.params import IS_TEST, TARGET_CLOSING_PERC
 
 RISK_FREE_RATE = 0.01
 
@@ -80,7 +80,7 @@ def is_time_in_range(start_time, end_time, current_time):
         return start_time <= current_time or current_time < end_time
 		
 def getCurrentPositions(optionsOnly=False, rawOnly=False):
-	client = AlpacaClientInstance().getClient(BrokerClient)
+	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
 	positions = client.get_positions()
 	
 	data = dict()
@@ -184,7 +184,7 @@ def get_underlying_price(symbol, stock_data_client=None):
 	# Get the latest trade for the underlying stock
 	underlying_trade_request = StockLatestTradeRequest(symbol_or_symbols=symbol)
 	if not stock_data_client:
-		stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+		stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, ENVIRONMENT)
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
 	return underlying_trade_response	
   
@@ -249,7 +249,7 @@ def checkTrades(environment: str = "paper"):
 			# print(order)
 			pickled_instance = pickle.dumps(order)
 				
-			df.loc[len(df)] = [ENVIRONMENT, str(order.id), pickled_instance]
+			df.loc[len(df)] = [environment, str(order.id), pickled_instance]
 
 			if order.filled_avg_price:
 				amount = float(order.filled_qty) * float(order.filled_avg_price) * 100
@@ -369,9 +369,9 @@ def main():
 
 	strat_logger.set_fresh_start(args.fresh_start)
 	
-	client = AlpacaClientInstance().getClient(BrokerClient)
-	tradingClient = AlpacaClientInstance().getClient(TradingClient)
-	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
+	tradingClient = AlpacaClientInstance().getClient(TradingClient, ENVIRONMENT)
+	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, ENVIRONMENT)
 
 	portNumber = 7050
 	if not IS_PAPER:
@@ -477,8 +477,8 @@ def main():
 def testSellCall(symbol):
 	underlying_trade_request = StockLatestTradeRequest(symbol_or_symbols=symbol)
 	
-	client = AlpacaClientInstance().getClient(TradingClient)
-	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+	client = AlpacaClientInstance().getClient(TradingClient, ENVIRONMENT)
+	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, ENVIRONMENT)
 	
 	upperBollinger = getBollingerBands(symbol)
 	
@@ -545,7 +545,7 @@ def calculate_delta(option_price, strike_price, expiry, underlying_price, risk_f
     return delta
 	
 def getPutOption(owned_option):
-	client = AlpacaClientInstance().getClient(BrokerClient)
+	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
 
 	stock = owned_option.symbol[0: find_first_non_alpha_loop(owned_option.symbol)[1]]
 	
@@ -563,7 +563,7 @@ def roll_rinse_option(option_data, rolling=True):
     # Get the latest quote for the option price
 	option_symbol = option_data.symbol
 	option_quote_request = 	OptionLatestQuoteRequest(symbol_or_symbols=option_symbol)
-	option_historical_data_client = AlpacaClientInstance().getClient(OptionHistoricalDataClient)
+	option_historical_data_client = AlpacaClientInstance().getClient(OptionHistoricalDataClient, ENVIRONMENT)
 
 	option_quote = option_historical_data_client.get_option_latest_quote(option_quote_request)[option_symbol]
 	# print(option_quote)
@@ -583,7 +583,7 @@ def roll_rinse_option(option_data, rolling=True):
 	
 	remainingPerc = current_option_price / float(option_data.avg_entry_price)
 	
-	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient)
+	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, ENVIRONMENT)
 	
 	underlying_trade_request = StockLatestTradeRequest(symbol_or_symbols=currentOptionContract.root_symbol)
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
@@ -630,7 +630,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	# targetPercentageLeft = 1-targetPercentageLeft
 	
-	targetPercent = .25
+	targetPercent = TARGET_CLOSING_PERC
 	targetTest = targetPercent * float(option_data.avg_entry_price)
 	# if current_option_price <= target_profit_price and abs(current_delta) > .5:
 	# if (remainingPerc <= targetPercentageLeft and abs(current_delta) > .5):  #or remainingPerc > 1.0:

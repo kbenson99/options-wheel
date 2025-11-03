@@ -24,4 +24,8 @@ OPEN_INTEREST_MIN = 100
 # The minimum score passed to core.strategy.select_options().
 SCORE_MIN = 0.05
 
+# The target percentage of remaining premium that remains when we will roll/close the option position
+TARGET_CLOSING_PERC = .25
+
+
 IS_TEST = False

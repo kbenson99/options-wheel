@@ -4,7 +4,6 @@ import os
 # Get the absolute path to our investment modules
 # module_path = os.path.abspath('C:/investment/apex') 
 
-
 module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'apex'))
 
 # Add the module_path to sys.path
@@ -16,7 +15,8 @@ sys.path.append(module_path)
 package_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Add the directory to sys.path
-sys.path.insert(0, package_dir) # Insert at the beginning for higher priority
+sys.path.append(package_dir)
+# sys.path.insert(0, package_dir) # Insert at the beginning for higher priority
 # print(sys.path)
 
 from database import *
