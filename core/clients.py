@@ -20,6 +20,7 @@ class CLIENT(Enum):
 class AlpacaClientInstance:
 	_instance = None
 	clients = dict()
+	myEnvironment = 'paper'
 
 	def __new__(cls, *args, **kwargs):
 		if cls._instance is None:
@@ -42,6 +43,10 @@ class AlpacaClientInstance:
 		if not IS_PAPER:
 			key, secret = _getProductionConfig()
 		
+		if environment != self.myEnvironment:
+			self.myEnvironment = environment
+			self.clients.clear()
+			
 		if clienttype not in self.clients:
 			# clienttype == CLIENT.BROKERCLIENT
 			# print(clienttype)

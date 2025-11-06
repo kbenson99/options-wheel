@@ -9,7 +9,6 @@ from alpaca.data.requests import OptionLatestQuoteRequest
 from alpaca.trading.requests import GetOrdersRequest
 import re
 
-# from .py_alpaca_api import PyAlpacaAPI
 
 from core.execution import sell_puts, sell_calls
 from core.state_manager import update_state, calculate_risk
@@ -44,6 +43,9 @@ RISK_FREE_RATE = 0.01
 
 pattern = r'\d+'
 
+PRODUCTION = 'production'
+PAPER = 'paper'
+
 def getStrategyLogger():
 	args = parse_args()
 	filename = "logs/strategy_log.json"
@@ -60,6 +62,19 @@ def getLogger():
 	logger = setup_logger(level=args.log_level, to_file=args.log_to_file, log_file=filename)
 	return logger
 
+def is_same_day(dt1, dt2):
+	"""
+	Compares two datetime objects to check if they represent the same calendar day.
+
+	Args:
+	dt1: The first datetime object.
+	dt2: The second datetime object.
+
+	Returns:
+	True if both datetime objects fall on the same calendar day, False otherwise.
+	"""
+	return dt1.date() == dt2.date()
+  
 def is_time_in_range(start_time, end_time, current_time):
     """
     Checks if a given current_time falls within a specified time range.
@@ -95,14 +110,23 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 			else:
 				data[p.symbol] = p
 		return data
-		
+	
+def getTargetClosingPercentage(environment):
+	perc = TARGET_CLOSING_PERC
+	df = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
+	if not df.empty:
+		rec = df.loc[df[environmentColumn ] == environment, optionsTargetGainPercentage] 
+		if not rec.empty:
+			perc = rec.iloc[0]
+	return float(perc)
+	
 def isEnabled(environment):
 	active = False
 	df = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
 	# print(df)
 	
 	if not df.empty:
-		rec = df.loc[df[environmentColumn ] == environment, 'active'] 
+		rec = df.loc[df[environmentColumn ] == environment, isActiveColumn.lower()] 
 		if not rec.empty:
 			rec = rec.iloc[0]
 			active = rec.upper() == 'Y'
@@ -134,8 +158,8 @@ def loadSymbolsFromCsv():
 	# print(optionsSymbolsTable)
 	OptionsDatabase.insertDatabaseRecords(df, optionsSymbolsTable, DbVariables.PostgreSqlNeonOptionTech)
 
-def getPyAlpacaClient(environment: str = "paper"):
-	valid_env = ["paper", "production"]
+def getPyAlpacaClient(environment: str = PAPER):
+	valid_env = [PAPER, PRODUCTION]
 	if environment not in valid_env:
 		raise ValidationError(
 			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
@@ -146,24 +170,28 @@ def getPyAlpacaClient(environment: str = "paper"):
 	api = PyAlpacaAPI(
 		api_key=key,
 		api_secret=secret,
-		api_paper=environment=='paper'  # Use paper trading for testing
+		api_paper=environment==PAPER  # Use paper trading for testing
 	)
 	return api
 	
-def testTexas(environment: str = "paper"):	
+def checkAccount(environment: str = PAPER):	
 	api = getPyAlpacaClient(environment)
 	
 	account = api.trading.account.get()
 	print(f"Account Balance: ${account.cash}")
 	print(f"Buying Power: ${account.buying_power}")
-	print(account)
 	
 	config = api.trading.account.get_configuration()
 	print(f"PDT Check: {config.pdt_check}")
 	print(f"Trade Confirm Email: {config.trade_confirm_email}")
 	print(f"Suspend Trade: {config.suspend_trade}")
 	print(f"No Shorting: {config.no_shorting}")	
+	
+	print(30 * '=')
+	print(account)
+	print(30 * '=')
 	print(config)
+	return account
 
 # Get the latest price of the underlying stock
 def get_underlying_price(symbol, stock_data_client=None):
@@ -209,9 +237,32 @@ def getExpiration(symbol):
 
 	expires = datetime(year, month, day)
 	return expires
-  
-def checkTrades(environment: str = "paper"):
-	valid_env = ["paper", "production"]
+
+def getOrders(environment, direction='asc'):
+	request_params = GetOrdersRequest(
+                    limit=500,
+                    status=QueryOrderStatus.ALL
+                    ,direction=direction
+                    # ,side=OrderSide.SELL
+                 )	
+	tradingClient = AlpacaClientInstance().getClient(TradingClient, environment)
+	orders = tradingClient.get_orders(filter=request_params) 
+	return orders
+
+def wasTradedToday(symbol, orders):
+	tradedToday = False
+	now = datetime.now()
+	for order in orders:
+		if order.symbol == symbol:
+			filled = order.filled_at
+			if is_same_day(now, filled):
+				tradedToday = True
+				break
+	return tradedToday
+
+ 
+def checkTrades(environment: str = PAPER):
+	valid_env = [PAPER, PRODUCTION]
 	if environment not in valid_env:
 		raise ValidationError(
 			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
@@ -230,8 +281,7 @@ def checkTrades(environment: str = "paper"):
                     # ,side=OrderSide.SELL
                  )
 	
-	tradingClient = AlpacaClientInstance().getClient(TradingClient, environment)
-	orders = tradingClient.get_orders(filter=request_params)
+	orders = getOrders(environment)
 	# print(orders)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, environment)
 	
@@ -317,9 +367,13 @@ def checkTrades(environment: str = "paper"):
 		if contractType == 'P':
 			if currentPrice[stock].price < strike:
 				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+			else:
+				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 		if contractType == 'C':
 			if currentPrice[stock].price > strike:
 				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+			else:
+				logger.info(f'Call: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 	
 	api = getPyAlpacaClient(environment)
 	assigned = api.trading.account.activities('OPASN')
@@ -431,13 +485,21 @@ def main():
 				ownedPositions = getCurrentPositions()
 				
 				# Run the close Options that are now rollable
+				ordersSubmitted = getOrders(ENVIRONMENT, direction='desc')
+				
 				optionPositions = getCurrentPositions(optionsOnly=True)
+				target = getTargetClosingPercentage(ENVIRONMENT)
+				logger.info(f"Target percentage for rolling options for {ENVIRONMENT} environment is {target * 100}%")
 				for h in optionPositions:
 					try:
 						rec = optionPositions[h]
-						shouldClose = roll_rinse_option(rec)
-						if shouldClose and marketOpen:
-							tradingClient.close_position(rec.symbol)
+						pdtCheck = wasTradedToday(rec.symbol, ordersSubmitted)
+						if not pdtCheck:						
+							shouldClose = roll_rinse_option(rec, target=target)
+							if shouldClose and marketOpen:
+								tradingClient.close_position(rec.symbol)
+						else:
+							logger.info(f'Symbol {rec.symbol} was already traded today and PDT would be violated!')
 					except Exception as re:
 						logger.exception(str(re))
 						logger.exception(re)
@@ -556,7 +618,7 @@ def getPutOption(owned_option):
 	return option
 
 # calculate the current delta of the option (rolling or rinsing)
-def roll_rinse_option(option_data, rolling=True):
+def roll_rinse_option(option_data, target=TARGET_CLOSING_PERC, rolling=True):
 	logger = getLogger()
 	shouldSell = False
 
@@ -620,7 +682,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	# Set target profit levels in two ways: 1) 50% of the initial credit received, 2) 2x the initial delta of the short put
 	# print(option_data)
-	targetPercentageLeft = .45
+	targetPercentageLeft = target
 	target_profit_price = float(option_data.avg_entry_price) * targetPercentageLeft  # x% of credit received
 	# print(current_delta)
 	# initial_delta = option_data.initial_delta * 2  # Set target delta level at 2x the initial delta of the short put
@@ -630,7 +692,7 @@ def roll_rinse_option(option_data, rolling=True):
 
 	# targetPercentageLeft = 1-targetPercentageLeft
 	
-	targetPercent = TARGET_CLOSING_PERC
+	targetPercent = target
 	targetTest = targetPercent * float(option_data.avg_entry_price)
 	# if current_option_price <= target_profit_price and abs(current_delta) > .5:
 	# if (remainingPerc <= targetPercentageLeft and abs(current_delta) > .5):  #or remainingPerc > 1.0:
