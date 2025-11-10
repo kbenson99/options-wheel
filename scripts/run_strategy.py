@@ -189,23 +189,25 @@ def getPyAlpacaClient(environment: str = PAPER):
 	)
 	return api
 	
-def checkAccount(environment: str = PAPER):	
+def checkAccount(environment: str = PAPER):
+	logger = getLogger()
 	api = getPyAlpacaClient(environment)
 	
 	account = api.trading.account.get()
-	print(f"Account Balance: ${account.cash}")
-	print(f"Buying Power: ${account.buying_power}")
+	logger.info(f"Account Balance: ${account.cash}")
+	logger.info(f"Buying Power: ${account.buying_power}")
+	logger.info(f"Options Buying Power: ${account.options_buying_power}")
 	
 	config = api.trading.account.get_configuration()
-	print(f"PDT Check: {config.pdt_check}")
-	print(f"Trade Confirm Email: {config.trade_confirm_email}")
-	print(f"Suspend Trade: {config.suspend_trade}")
-	print(f"No Shorting: {config.no_shorting}")	
+	logger.info(f"PDT Check: {config.pdt_check}")
+	logger.info(f"Trade Confirm Email: {config.trade_confirm_email}")
+	logger.info(f"Suspend Trade: {config.suspend_trade}")
+	logger.info(f"No Shorting: {config.no_shorting}")	
 	
-	print(30 * '=')
-	print(account)
-	print(30 * '=')
-	print(config)
+	logger.info(30 * '=')
+	logger.info(account)
+	logger.info(30 * '=')
+	logger.info(config)
 	return account
 
 # Get the latest price of the underlying stock
@@ -511,7 +513,8 @@ def main():
 								expires = getExpiration(rec.symbol)
 								if is_same_day(datetime.now(), expires):
 									logger.info(f'{rec.symbol} expires today and we flagged it to close since the premium is low....but we will hold it to close to keep the remainder premium!')
-								else:								
+								else:
+									logger.info(f'{rec.symbol} expires on {expires}.  Continuing on to closing the position')
 									tradingClient.close_position(rec.symbol)
 						else:
 							logger.info(f'Symbol {rec.symbol} cannot be closed since it was already traded today and PDT would be violated!')
