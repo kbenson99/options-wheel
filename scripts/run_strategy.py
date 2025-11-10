@@ -110,6 +110,21 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 			else:
 				data[p.symbol] = p
 		return data
+
+def getRuntimeSettings(environment):
+	perc = TARGET_CLOSING_PERC
+	active = False
+	
+	df = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
+	if not df.empty:
+		rec = df.loc[df[environmentColumn ] == environment, optionsTargetGainPercentage] 
+		if not rec.empty:
+			perc = float(rec.iloc[0])
+		rec = df.loc[df[environmentColumn ] == environment, isActiveColumn.lower()] 
+		if not rec.empty:
+			rec = rec.iloc[0]
+			active = rec.upper() == 'Y'
+	return active, perc
 	
 def getTargetClosingPercentage(environment):
 	perc = TARGET_CLOSING_PERC
@@ -117,8 +132,8 @@ def getTargetClosingPercentage(environment):
 	if not df.empty:
 		rec = df.loc[df[environmentColumn ] == environment, optionsTargetGainPercentage] 
 		if not rec.empty:
-			perc = rec.iloc[0]
-	return float(perc)
+			perc = float(rec.iloc[0])
+	return perc
 	
 def isEnabled(environment):
 	active = False
@@ -249,6 +264,7 @@ def getOrders(environment, direction='asc'):
 	orders = tradingClient.get_orders(filter=request_params) 
 	return orders
 
+
 def wasTradedToday(symbol, orders):
 	tradedToday = False
 	now = datetime.now()
@@ -274,13 +290,6 @@ def checkTrades(environment: str = PAPER):
 	
 	df = pd.DataFrame(columns=column_names)
 
-	request_params = GetOrdersRequest(
-                    limit=500,
-                    status=QueryOrderStatus.ALL
-                    ,direction='asc'
-                    # ,side=OrderSide.SELL
-                 )
-	
 	orders = getOrders(environment)
 	# print(orders)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, environment)
@@ -450,7 +459,8 @@ def main():
 			if IS_TEST:
 				logger.info("Running TESTS even though market is not open")
 		
-		if not isEnabled(ENVIRONMENT):
+		enabled, target = getRuntimeSettings(ENVIRONMENT)
+		if not enabled:
 			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
 			return		
 		
@@ -484,22 +494,27 @@ def main():
 
 				ownedPositions = getCurrentPositions()
 				
-				# Run the close Options that are now rollable
+				# Run the close Options logic for positions that are now rollable
 				ordersSubmitted = getOrders(ENVIRONMENT, direction='desc')
 				
 				optionPositions = getCurrentPositions(optionsOnly=True)
-				target = getTargetClosingPercentage(ENVIRONMENT)
+
 				logger.info(f"Target percentage for rolling options for {ENVIRONMENT} environment is {target * 100}%")
 				for h in optionPositions:
 					try:
 						rec = optionPositions[h]
 						pdtCheck = wasTradedToday(rec.symbol, ordersSubmitted)
-						if not pdtCheck:						
+						if not pdtCheck:
+				
 							shouldClose = roll_rinse_option(rec, target=target)
 							if shouldClose and marketOpen:
-								tradingClient.close_position(rec.symbol)
+								expires = getExpiration(rec.symbol)
+								if is_same_day(datetime.now(), expires):
+									logger.info(f'{rec.symbol} expires today and we flagged it to close since the premium is low....but we will hold it to close to keep the remainder premium!')
+								else:								
+									tradingClient.close_position(rec.symbol)
 						else:
-							logger.info(f'Symbol {rec.symbol} was already traded today and PDT would be violated!')
+							logger.info(f'Symbol {rec.symbol} cannot be closed since it was already traded today and PDT would be violated!')
 					except Exception as re:
 						logger.exception(str(re))
 						logger.exception(re)

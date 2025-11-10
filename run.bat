@@ -13,13 +13,17 @@ CLS
 
 call %CMD% --strat-log --log-level DEBUG --log-to-file %*
 
-if %argCount% == 1 GOTO :END
-GOTO :EXIT
+
+IF /I "%~1" == "--test" (
+    GOTO :END
+) ELSE (
+	GOTO :EXIT
+)
+
 
 :EXIT
 exit
 	
 :END
 ECHO ON
-exit
 

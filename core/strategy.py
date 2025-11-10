@@ -56,7 +56,8 @@ def getBollingerBands(ticker, window=20, num_std=2):
 	
 	# Step 1: Fetch stock data
 	start = datetime.now()
-	end = start - timedelta(days=60)
+	days = 60 + window
+	end = start - timedelta(days=days)
 	
 	data = yf.download(ticker, start=end.strftime('%Y-%m-%d'), end=start.strftime('%Y-%m-%d'), auto_adjust=True, progress=False)
 	

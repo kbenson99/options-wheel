@@ -1,3 +1,5 @@
+import argparse
+
 # The max dollar risk allowed by the strategy.  
 MAX_RISK = 3_000
 
@@ -29,3 +31,18 @@ TARGET_CLOSING_PERC = .25
 
 
 IS_TEST = False
+
+# Create an ArgumentParser object
+parser = argparse.ArgumentParser(description="Control if to run tests")
+
+# Add arguments
+parser.add_argument("-t", "--test", action="store_true")
+
+# Parse the arguments
+known_args, unknown_args = parser.parse_known_args()
+
+# Access the parsed arguments
+if known_args.test:
+	IS_TEST = True
+	print("running TESTS")
+	
