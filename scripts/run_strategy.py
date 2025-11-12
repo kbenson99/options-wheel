@@ -33,6 +33,11 @@ from scipy.optimize import brentq
 import numpy as np
 
 import pandas as pd
+
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 pd.options.mode.chained_assignment = None
 
 import pickle
@@ -76,23 +81,23 @@ def is_same_day(dt1, dt2):
 	return dt1.date() == dt2.date()
   
 def is_time_in_range(start_time, end_time, current_time):
-    """
-    Checks if a given current_time falls within a specified time range.
+	"""
+	Checks if a given current_time falls within a specified time range.
 
-    Args:
-        start_time (datetime.time): The start time of the range.
-        end_time (datetime.time): The end time of the range.
-        current_time (datetime.time): The time to check.
+	Args:
+		start_time (datetime.time): The start time of the range.
+		end_time (datetime.time): The end time of the range.
+		current_time (datetime.time): The time to check.
 
-    Returns:
-        bool: True if current_time is within the range, False otherwise.
-    """
-    if start_time <= end_time:
-        # Case 1: Time range within the same day (e.g., 09:00 - 17:00)
-        return start_time <= current_time < end_time
-    else:
-        # Case 2: Time range spans across midnight (e.g., 22:00 - 06:00)
-        return start_time <= current_time or current_time < end_time
+	Returns:
+		bool: True if current_time is within the range, False otherwise.
+	"""
+	if start_time <= end_time:
+		# Case 1: Time range within the same day (e.g., 09:00 - 17:00)
+		return start_time <= current_time < end_time
+	else:
+		# Case 2: Time range spans across midnight (e.g., 22:00 - 06:00)
+		return start_time <= current_time or current_time < end_time
 		
 def getCurrentPositions(optionsOnly=False, rawOnly=False):
 	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
@@ -257,11 +262,11 @@ def getExpiration(symbol):
 
 def getOrders(environment, direction='asc'):
 	request_params = GetOrdersRequest(
-                    limit=500,
-                    status=QueryOrderStatus.ALL
-                    ,direction=direction
-                    # ,side=OrderSide.SELL
-                 )	
+					limit=500,
+					status=QueryOrderStatus.ALL
+					,direction=direction
+					# ,side=OrderSide.SELL
+				 )	
 	tradingClient = AlpacaClientInstance().getClient(TradingClient, environment)
 	orders = tradingClient.get_orders(filter=request_params) 
 	return orders
@@ -278,6 +283,93 @@ def wasTradedToday(symbol, orders):
 				break
 	return tradedToday
 
+def send_option_positions_email(sender_email, sender_password, recipient_email, df, environment, messages=list(), smtp_server='smtp.gmail.com', smtp_port=587):
+	"""
+	Sends an HTML email with stock positions.
+
+	Parameters:
+	- sender_email: str, your email address
+	- sender_password: str, your email password or app-specific password
+	- recipient_email: str, recipient's email address
+	- stock_positions: list of dicts, each with keys like 'Ticker', 'Shares', 'Price', 'Value'
+	- smtp_server: str, SMTP server address
+	- smtp_port: int, SMTP server port
+	"""
+
+
+	html = f"""
+		<html>
+		<body>
+			<h2>Options Portfolio for {environment.upper()}</h2>
+			<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+				<tr>
+					<th>Symbol</th>
+					<th>Type</th>
+					<th>Underlyprice</th>
+					<th>Strike</th>
+					<th>At Risk</th>
+				</tr>
+		"""
+
+	for _, row in df.iterrows():
+		row_bg = "background-color:#ffcccc;" if row['Risk'] == 'Y' else ""
+		# <td style="color:{change_color};">{row['Change']:+.2f}</td>
+		# change_color = "green" if row['Change'] >= 0 else "red"
+		html += f"""
+			<tr style="{row_bg}">
+				<td><b>{row['Symbol']}</b></td>
+				<td>{row['Type']}</td>
+				<td>${row['Price']:.2f}</td>
+				<td>${row['Strike']:.2f}</td>
+				<td>{row['Risk']}</td>
+			</tr>
+		"""
+
+	html += """
+		</table>	
+		"""
+		
+	if messages:
+		html += """
+			<h2>Notes</h2>
+			<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+				<tr>
+					<th>Message</th>
+				</tr>
+			"""
+		
+		for message in messages:
+			html += f"""
+			<tr>
+				<td><b>{message}</b></td>
+			</tr>
+		"""	
+		
+		html += """
+			</table>	
+		"""
+			
+	html += """	
+		</body>
+		</html>
+		"""
+
+	# Create email message
+	msg = MIMEMultipart("alternative")
+	msg["Subject"] = f"Current Option Positions -{environment.upper()}"
+	msg["From"] = sender_email
+	msg["To"] = recipient_email
+	msg.attach(MIMEText(html, "html"))
+
+	# Send email
+	try:
+		with smtplib.SMTP(smtp_server, smtp_port) as server:
+			server.starttls()
+			server.login(sender_email, sender_password)
+			server.sendmail(sender_email, recipient_email, msg.as_string())
+		print("Email sent successfully.")
+	except Exception as e:
+		print(f"Failed to send email: {e}")
  
 def checkTrades(environment: str = PAPER):
 	valid_env = [PAPER, PRODUCTION]
@@ -285,10 +377,10 @@ def checkTrades(environment: str = PAPER):
 		raise ValidationError(
 			f"Invalid environment '{environment}'. Must be one of: {', '.join(valid_env)}"
 		)
-
 	logger = getLogger() # standard Python logger used for general runtime messages, debugging, and error reporting.
 	
 	column_names = [environmentColumn, optionsKeyColumn, optionsActivityBlobColumn]
+	shouldEmail = False
 	
 	df = pd.DataFrame(columns=column_names)
 
@@ -348,6 +440,7 @@ def checkTrades(environment: str = PAPER):
 	if not transDf.empty:
 		print(transDf)
 		# print(df)
+		shouldEmail = True
 		OptionsDatabase.insertDatabaseRecords(transDf, optionsOrdersTable, DbVariables.MariaDbOptions)
 
 	now = datetime.now()
@@ -370,31 +463,68 @@ def checkTrades(environment: str = PAPER):
 			nonExpiredPremium += premium
 			nonExpiredCnt += 1
 
+	email_data = list()
+	
 	logger.info(40 * '-')
 	currentPrice = get_underlying_price(nonExpired.values(), stock_data_client)
 	for symbol in nonExpired:
 		contractType, strike = getSymbolStrikeAndType(symbol)
 		stock = getUnderlyingSymbol(symbol)
+		risk = "N"
+		
 		if contractType == 'P':
 			if currentPrice[stock].price < strike:
 				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+				risk = "Y"
 			else:
 				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 		if contractType == 'C':
 			if currentPrice[stock].price > strike:
 				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+				risk = "Y"
 			else:
 				logger.info(f'Call: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
-	
+				
+		rec = {"Symbol": symbol, "Type": contractType, "Price": currentPrice[stock].price, "Strike": strike, "Risk": risk}
+		email_data.append(rec)
+		
 	api = getPyAlpacaClient(environment)
 	assigned = api.trading.account.activities('OPASN')
 	
 	logger.info(40 * '-')	
-	logger.info(f'Premium from {cnt} closed option positions: {closedTotalPremium}')
-	logger.info(f'Count of losers = {losers}')
-	logger.info(f'Count of assignments = {len(assigned)}')
-	logger.info(f'Premium from {expired} expired options: {expiredPremium}')
-	logger.info(f'Premium from {nonExpiredCnt} NonExpired options: {nonExpiredPremium}')				 
+	messages = list()
+	msg = f'Premium from {cnt} closed option positions: ${closedTotalPremium}'
+	messages.append(msg)
+	logger.info(msg)
+	
+	msg = f'Count of losers:  {losers}'
+	messages.append(msg)
+	logger.info(msg)
+	
+	msg = f'Count of assignments:  {len(assigned)}'
+	messages.append(msg)
+	logger.info(msg)	
+
+	msg = f'Premium from {expired} expired options: {expiredPremium}'
+	messages.append(msg)
+	logger.info(msg)
+
+	msg = f'Premium from {nonExpiredCnt} NonExpired options: ${nonExpiredPremium}'
+	messages.append(msg)
+	logger.info(msg)
+
+	df = pd.DataFrame(email_data)
+	configs = getConfiguration()
+	pwd = decodeEncryptedValue(configs.get("EMAIL_PWD").data, SECURITY_KEY)
+	if shouldEmail:
+		send_option_positions_email(
+			sender_email=configs.get("EMAIL_SENDER").data,
+			sender_password=pwd,
+			recipient_email=configs.get("EMAIL_SENDER").data,
+			df=df, 
+			environment=environment,
+			messages=messages
+		)
 
 def isMarketOpen():
 	# returns if market is open and where SYMBOLS should be loaded
@@ -542,7 +672,9 @@ def main():
 			ownedPositions = getCurrentPositions(True)
 			sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
 
-			strat_logger.save()    
+			strat_logger.save() 
+			
+			checkTrades(ENVIRONMENT)
 	
 	except Exception as ex:
 		logger.exception(str(ex))
@@ -575,54 +707,54 @@ def testSellCall(symbol):
 # Calculate implied volatility
 def calculate_implied_volatility(option_price, S, K, T, r, option_type):
 
-    # Define a reasonable range for sigma
-    sigma_lower = 1e-6
-    sigma_upper = 5.0  # Adjust upper limit if necessary
+	# Define a reasonable range for sigma
+	sigma_lower = 1e-6
+	sigma_upper = 5.0  # Adjust upper limit if necessary
 
-    # Check if the option is out-of-the-money and price is close to zero
-    intrinsic_value = max(0, (S - K) if option_type == 'call' else (K - S))
-    if option_price <= intrinsic_value + 1e-6:
+	# Check if the option is out-of-the-money and price is close to zero
+	intrinsic_value = max(0, (S - K) if option_type == 'call' else (K - S))
+	if option_price <= intrinsic_value + 1e-6:
 
-        # print("Option price is close to intrinsic value; implied volatility is near zero.") # Uncomment for checking the status
-        return 0.0
+		# print("Option price is close to intrinsic value; implied volatility is near zero.") # Uncomment for checking the status
+		return 0.0
 
-    # Define the function to find the root
-    def option_price_diff(sigma):
-        d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-        d2 = d1 - sigma * np.sqrt(T)
-        if option_type == 'call':
-            price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-        elif option_type == 'put':
-            price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-        return price - option_price
+	# Define the function to find the root
+	def option_price_diff(sigma):
+		d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+		d2 = d1 - sigma * np.sqrt(T)
+		if option_type == 'call':
+			price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+		elif option_type == 'put':
+			price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+		return price - option_price
 
-    try:
-        return brentq(option_price_diff, sigma_lower, sigma_upper)
-    except ValueError as e:
-        print(f"Failed to find implied volatility: {e}")
-        return None
+	try:
+		return brentq(option_price_diff, sigma_lower, sigma_upper)
+	except ValueError as e:
+		print(f"Failed to find implied volatility: {e}")
+		return None
 		
 # Calculate option Delta
 def calculate_delta(option_price, strike_price, expiry, underlying_price, risk_free_rate, option_type):
-    T = (expiry - pd.Timestamp.now()).days / 365
-    T = max(T, 1e-6)  # Set minimum T to avoid zero
+	T = (expiry - pd.Timestamp.now()).days / 365
+	T = max(T, 1e-6)  # Set minimum T to avoid zero
 
-    if T == 1e-6:
-        print("Option has expired or is expiring now; setting delta based on intrinsic value.")
-        if option_type == 'put':
-            return -1.0 if underlying_price < strike_price else 0.0
-        else:
-            return 1.0 if underlying_price > strike_price else 0.0
+	if T == 1e-6:
+		print("Option has expired or is expiring now; setting delta based on intrinsic value.")
+		if option_type == 'put':
+			return -1.0 if underlying_price < strike_price else 0.0
+		else:
+			return 1.0 if underlying_price > strike_price else 0.0
 
-    implied_volatility = calculate_implied_volatility(option_price, underlying_price, strike_price, T, risk_free_rate, option_type)
-    print(f"implied volatility is {implied_volatility}")
-    if implied_volatility is None or implied_volatility == 0.0:
-        print("Implied volatility could not be determined, skipping delta calculation.")
-        return None
+	implied_volatility = calculate_implied_volatility(option_price, underlying_price, strike_price, T, risk_free_rate, option_type)
+	print(f"implied volatility is {implied_volatility}")
+	if implied_volatility is None or implied_volatility == 0.0:
+		print("Implied volatility could not be determined, skipping delta calculation.")
+		return None
 
-    d1 = (np.log(underlying_price / strike_price) + (risk_free_rate + 0.5 * implied_volatility ** 2) * T) / (implied_volatility * np.sqrt(T))
-    delta = norm.cdf(d1) if option_type == 'call' else -norm.cdf(-d1)
-    return delta
+	d1 = (np.log(underlying_price / strike_price) + (risk_free_rate + 0.5 * implied_volatility ** 2) * T) / (implied_volatility * np.sqrt(T))
+	delta = norm.cdf(d1) if option_type == 'call' else -norm.cdf(-d1)
+	return delta
 	
 def getPutOption(owned_option):
 	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
@@ -640,7 +772,7 @@ def roll_rinse_option(option_data, target=TARGET_CLOSING_PERC, rolling=True):
 	logger = getLogger()
 	shouldSell = False
 
-    # Get the latest quote for the option price
+	# Get the latest quote for the option price
 	option_symbol = option_data.symbol
 	option_quote_request = 	OptionLatestQuoteRequest(symbol_or_symbols=option_symbol)
 	option_historical_data_client = AlpacaClientInstance().getClient(OptionHistoricalDataClient, ENVIRONMENT)
@@ -651,7 +783,7 @@ def roll_rinse_option(option_data, target=TARGET_CLOSING_PERC, rolling=True):
 	currentOptionContract = getPutOption(option_quote)
 	# print(currentOptionContract)
 
-    # Extract option details
+	# Extract option details
 	current_option_price = (option_quote.bid_price + option_quote.ask_price) / 2
 	strike_price = float(currentOptionContract.strike_price)
 	expiry = pd.Timestamp(currentOptionContract.expiration_date)
@@ -677,7 +809,7 @@ def roll_rinse_option(option_data, target=TARGET_CLOSING_PERC, rolling=True):
 	# If the option is a put, calculate the delta for the put option
 	if option_type == 'put':
 
-        # Calculate delta for each option
+		# Calculate delta for each option
 		current_delta = calculate_delta(
 			option_price=current_option_price,
 			strike_price=strike_price,
@@ -687,7 +819,7 @@ def roll_rinse_option(option_data, target=TARGET_CLOSING_PERC, rolling=True):
 			option_type='put'
 		)
 
-    # If the option is a call, calculate the delta for the call option
+	# If the option is a call, calculate the delta for the call option
 	else:
 		current_delta = calculate_delta(
 			option_price=current_option_price,
