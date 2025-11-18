@@ -118,18 +118,34 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 
 def getRuntimeSettings(environment):
 	perc = TARGET_CLOSING_PERC
-	active = False
+	
+	sell_put_active = False
+	sell_call_active = False
+	close_put_active = False
+	close_call_active = False
 	
 	df = OptionsDatabase.getDatabaseRecords(optionsRuntimeTable, False)
 	if not df.empty:
 		rec = df.loc[df[environmentColumn ] == environment, optionsTargetGainPercentage] 
 		if not rec.empty:
 			perc = float(rec.iloc[0])
-		rec = df.loc[df[environmentColumn ] == environment, isActiveColumn.lower()] 
+		rec = df.loc[df[environmentColumn ] == environment, optionssell_put_active] 
 		if not rec.empty:
 			rec = rec.iloc[0]
-			active = rec.upper() == 'Y'
-	return active, perc
+			sell_put_active = rec.upper() == 'Y'
+		rec = df.loc[df[environmentColumn ] == environment, optionssell_call_active] 
+		if not rec.empty:
+			rec = rec.iloc[0]
+			sell_call_active = rec.upper() == 'Y'
+		rec = df.loc[df[environmentColumn ] == environment, optionsclose_put_active] 
+		if not rec.empty:
+			rec = rec.iloc[0]
+			close_put_active = rec.upper() == 'Y'
+		rec = df.loc[df[environmentColumn ] == environment, optionsclose_call_active] 
+		if not rec.empty:
+			rec = rec.iloc[0]
+			close_call_active = rec.upper() == 'Y'
+	return sell_put_active, sell_call_active, close_put_active, close_call_active, perc
 	
 def getTargetClosingPercentage(environment):
 	perc = TARGET_CLOSING_PERC
@@ -307,6 +323,7 @@ def send_option_positions_email(sender_email, sender_password, recipient_email, 
 					<th>Type</th>
 					<th>Underlyprice</th>
 					<th>Strike</th>
+					<th>Breakeven</th>
 					<th>At Risk</th>
 				</tr>
 		"""
@@ -321,6 +338,7 @@ def send_option_positions_email(sender_email, sender_password, recipient_email, 
 				<td>{row['Type']}</td>
 				<td>${row['Price']:.2f}</td>
 				<td>${row['Strike']:.2f}</td>
+				<td>${row['Breakeven']:.2f}</td>
 				<td>{row['Risk']}</td>
 			</tr>
 		"""
@@ -415,11 +433,11 @@ def checkTrades(environment: str = PAPER):
 					# if order.symbol == 'SNAP251031P00008000':
 						# print(order)
 						# print(expires)
-					testing[order.symbol] = (order.symbol, float(order.filled_qty),  float(order.filled_avg_price), amount, expires)
+					testing[order.symbol] = (order.symbol, float(order.filled_qty),  float(order.filled_avg_price), amount, expires, order)
 				if order.side == 'buy':
 					if order.symbol in testing:
 						# get corresponding sell
-						symbol, quantity, filled_avg_price, premium, expires = testing.pop(order.symbol)
+						symbol, quantity, filled_avg_price, premium, expires, order = testing.pop(order.symbol)
 						# print(symbol)
 						
 						amount = amount * -1
@@ -450,7 +468,7 @@ def checkTrades(environment: str = PAPER):
 	expiredPremium = 0
 	nonExpiredPremium = 0
 	for symbol in testing:
-		symbol, quantity, filled_avg_price, premium, expires = testing[symbol]
+		symbol, quantity, filled_avg_price, premium, expires, order = testing[symbol]
 		if expires.date() < now.date():
 			expiredPremium += premium
 			expired += 1
@@ -469,23 +487,28 @@ def checkTrades(environment: str = PAPER):
 	currentPrice = get_underlying_price(nonExpired.values(), stock_data_client)
 	for symbol in nonExpired:
 		contractType, strike = getSymbolStrikeAndType(symbol)
+		breakeven = strike - float(order.filled_avg_price)
 		stock = getUnderlyingSymbol(symbol)
 		risk = "N"
+		breakeven = '0'
 		
 		if contractType == 'P':
+			breakeven = strike - float(order.filled_avg_price)
+			
 			if currentPrice[stock].price < strike:
 				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 				risk = "Y"
 			else:
 				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 		if contractType == 'C':
+			breakeven = strike + float(order.filled_avg_price)
 			if currentPrice[stock].price > strike:
 				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 				risk = "Y"
 			else:
 				logger.info(f'Call: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
 				
-		rec = {"Symbol": symbol, "Type": contractType, "Price": currentPrice[stock].price, "Strike": strike, "Risk": risk}
+		rec = {"Symbol": symbol, "Type": contractType, "Price": currentPrice[stock].price, "Strike": strike, 'Breakeven': breakeven, "Risk": risk}
 		email_data.append(rec)
 		
 	api = getPyAlpacaClient(environment)
@@ -512,6 +535,19 @@ def checkTrades(environment: str = PAPER):
 	msg = f'Premium from {nonExpiredCnt} NonExpired options: ${nonExpiredPremium}'
 	messages.append(msg)
 	logger.info(msg)
+	
+	account = api.trading.account.get()
+	msg = f"Account Balance: ${account.cash}"
+	messages.append(msg)
+	logger.info(msg)
+	
+	msg = f"Buying Power: ${account.buying_power}"
+	messages.append(msg)
+	logger.info(msg)
+	
+	msg = f"Options Buying Power: ${account.options_buying_power}"
+	messages.append(msg)
+	logger.info(msg)	
 
 	df = pd.DataFrame(email_data)
 	configs = getConfiguration()
@@ -591,10 +627,13 @@ def main():
 			if IS_TEST:
 				logger.info("Running TESTS even though market is not open")
 		
-		enabled, target = getRuntimeSettings(ENVIRONMENT)
+		# enabled, target = getRuntimeSettings(ENVIRONMENT)
+		sell_put_active, sell_call_active, close_put_active, close_call_active, target = getRuntimeSettings(ENVIRONMENT)
+		enabled = (sell_put_active or sell_call_active or close_put_active or close_call_active)
 		if not enabled:
 			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
-			return		
+			if not IS_TEST:
+				return		
 		
 		logger.info("Getting symbols")
 		SYMBOLS = getTradingSymbols(loadSymbolsFromLocal)
@@ -635,6 +674,8 @@ def main():
 				for h in optionPositions:
 					try:
 						rec = optionPositions[h]
+						# print(rec)
+						contractType, strike = getSymbolStrikeAndType(rec.symbol)
 						pdtCheck = wasTradedToday(rec.symbol, ordersSubmitted)
 						if not pdtCheck:
 				
@@ -645,7 +686,18 @@ def main():
 									logger.info(f'{rec.symbol} expires today and we flagged it to close since the premium is low....but we will hold it to close to keep the remainder premium!')
 								else:
 									logger.info(f'{rec.symbol} expires on {expires}.  Continuing on to closing the position')
-									tradingClient.close_position(rec.symbol)
+									close = False
+									
+									if contractType == 'P':
+										if close_put_active:
+											close = True
+									if contractType == 'C':
+										if close_call_active:
+											close = True
+									if close:		
+										tradingClient.close_position(rec.symbol)
+									else:
+										logger.info(f'Closing contract type of {contractType} is set to inactive')
 						else:
 							logger.info(f'Symbol {rec.symbol} cannot be closed since it was already traded today and PDT would be violated!')
 					except Exception as re:
@@ -654,7 +706,8 @@ def main():
 
 				for symbol, state in states.items():
 					if state["type"] == "long_shares":
-						sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
+						if sell_call_active:
+							sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
 				# print(allowed_symbols)
@@ -670,7 +723,8 @@ def main():
 			# buying_power = 5000
 			
 			ownedPositions = getCurrentPositions(True)
-			sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
+			if sell_put_active:
+				sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
 
 			strat_logger.save() 
 			

@@ -57,13 +57,15 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
 			
-			upperBollinger, lowerBollinger = getBollingerBands(p.underlying) #, stock_data_client)
+			upperBollinger, lowerBollinger = getBollingerBands(p.underlying, 50) #, stock_data_client)
 			
 			if p.strike > lowerBollinger:
 				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
 				continue
 			else:
 				logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}')
+				
+			breakeven = p.strike - p.bid_price * 100
 				
 			buying_power -= 100 * p.strike 
 			if buying_power < 0:
