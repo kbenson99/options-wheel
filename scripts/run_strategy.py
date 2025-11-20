@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from alpaca.trading.enums import ContractType, AssetStatus, AssetClass, QueryOrderStatus
 
-from core.strategy import getBollingerBands
+from core.strategy import getTechnicalIndicators
 from core.execution import find_first_non_alpha_loop
 
 from core.clients import *
@@ -116,7 +116,7 @@ def getCurrentPositions(optionsOnly=False, rawOnly=False):
 				data[p.symbol] = p
 		return data
 
-def getRuntimeSettings(environment):
+def getRuntimeSettingsOLD(environment):
 	perc = TARGET_CLOSING_PERC
 	
 	sell_put_active = False
@@ -496,14 +496,14 @@ def checkTrades(environment: str = PAPER):
 			breakeven = strike - float(order.filled_avg_price)
 			
 			if currentPrice[stock].price < strike:
-				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+				logger.info(f'Put ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike} Breakeven = {breakeven}')
 				risk = "Y"
 			else:
-				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike} Breakeven = {breakeven}')
 		if contractType == 'C':
 			breakeven = strike + float(order.filled_avg_price)
 			if currentPrice[stock].price > strike:
-				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
+				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike} Breakeven = {breakeven}')
 				risk = "Y"
 			else:
 				logger.info(f'Call: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike}')
@@ -628,7 +628,7 @@ def main():
 				logger.info("Running TESTS even though market is not open")
 		
 		# enabled, target = getRuntimeSettings(ENVIRONMENT)
-		sell_put_active, sell_call_active, close_put_active, close_call_active, target = getRuntimeSettings(ENVIRONMENT)
+		sell_put_active, sell_call_active, close_put_active, close_call_active, target = Fire.getRuntimeSettings(ENVIRONMENT)
 		enabled = (sell_put_active or sell_call_active or close_put_active or close_call_active)
 		if not enabled:
 			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
@@ -704,9 +704,10 @@ def main():
 						logger.exception(str(re))
 						logger.exception(re)
 
+				logger.info("Running sell calls!")
 				for symbol, state in states.items():
 					if state["type"] == "long_shares":
-						if sell_call_active:
+						if sell_call_active or IS_TEST:
 							sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
@@ -723,7 +724,7 @@ def main():
 			# buying_power = 5000
 			
 			ownedPositions = getCurrentPositions(True)
-			if sell_put_active:
+			if sell_put_active or IS_TEST:
 				sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
 
 			strat_logger.save() 

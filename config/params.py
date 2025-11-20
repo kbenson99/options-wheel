@@ -7,6 +7,7 @@ MAX_RISK = 3_000
 # The goal is to balance low assignment risk (lower Delta) with high premiums (higher Delta).
 DELTA_MIN = 0.15
 DELTA_MAX = 0.25
+DELTA_CALL_MAX = 0.35
 
 # The range of allowed yield when choosing puts or calls to sell.
 YIELD_MIN = 0.04
@@ -21,7 +22,7 @@ EXPIRATION_MIN = 0
 EXPIRATION_MAX = 45
 
 # Only trade contracts with at least this much open interest.
-OPEN_INTEREST_MIN = 100
+OPEN_INTEREST_MIN = 75
 
 # The minimum score passed to core.strategy.select_options().
 SCORE_MIN = 0.05

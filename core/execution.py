@@ -1,5 +1,5 @@
 import logging
-from .strategy import filter_underlying, filter_options, score_options, select_options, getBollingerBands
+from .strategy import filter_underlying, filter_options, score_options, select_options, getTechnicalIndicators
 from models.contract import Contract
 
 from alpaca.data.requests import OptionLatestQuoteRequest
@@ -10,7 +10,7 @@ from core.clients import *
 
 from alpaca.trading.enums import AssetClass
 
-from config.params import IS_TEST, MINIMUM_PREMIUM, DELTA_MIN, DELTA_MAX, YIELD_MIN, YIELD_MAX, OPEN_INTEREST_MIN, SCORE_MIN
+from config.params import IS_TEST, MINIMUM_PREMIUM, DELTA_MIN, DELTA_MAX, DELTA_CALL_MAX, YIELD_MIN, YIELD_MAX, OPEN_INTEREST_MIN, SCORE_MIN
 
 logger = logging.getLogger(f"strategy.{__name__}")
 
@@ -57,13 +57,19 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
 			
-			upperBollinger, lowerBollinger = getBollingerBands(p.underlying, 50) #, stock_data_client)
+			upperBollinger, lowerBollinger, rsi = getTechnicalIndicators(p.underlying, 50) #, stock_data_client)
 			
-			if p.strike > lowerBollinger:
+			if p.strike > lowerBollinger and lowerBollinger > 0:
 				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
 				continue
 			else:
 				logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}')
+				
+			if rsi > 30:
+				logger.info(f'RSI = {rsi}.  SKIPPING')
+				continue
+			else:
+				logger.info(f'RSI = {rsi}  Proceeding!')
 				
 			breakeven = p.strike - p.bid_price * 100
 				
@@ -105,13 +111,15 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 	logger.info(f"Searching for call options on {symbol}...")
 	potential = client.get_options_contracts([symbol], 'call')
 	
-	bollingerBands = getBollingerBands(symbol) #, stock_data_client)
-	upperBollinger, lowerBollinger = bollingerBands
+	technicals = getTechnicalIndicators(symbol) #, stock_data_client)
+	upperBollinger, lowerBollinger, rsi = technicals
 	logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
+	logger.info(f"RSI for {symbol} is {rsi}")
 	
 	recs = list()
 	for option in potential:
-		if option.strike_price > upperBollinger and option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
+		# option.strike_price > upperBollinger and
+		if  option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
 			recs.append(option.symbol)
 			# print(option)
 	
@@ -121,12 +129,13 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 	# print(ppp)
 	call_options = filter_options([Contract.from_contract_snapshot(contract, snapshots.get(contract.symbol, None)) for contract in potential if snapshots.get(contract.symbol, None)])
 	# call_options = filter_options([Contract.from_contract(option, client) for option in ppp], purchase_price)
-
+	# print(call_options)
 	if strat_logger:
 		strat_logger.log_call_options([c.to_dict() for c in call_options])
 	
 	if call_options:
 		scores = score_options(call_options)
+		# print(scores)
 		contract = call_options[np.argmax(scores)]
 		logger.info(contract)
 		
@@ -142,50 +151,50 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		logger.info(f"delta is {contract.delta}")
 
 		# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper Bollinger band
-		if strike_price > upperBollinger:	
-			logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
-			# print(contract)
-			# print(ownedPositions)
-			
-			continueWithContract = True
-			if contract.symbol in ownedPositions:
-				logger.info(f"We already own {contract.symbol}.  Skipping!")
-				continueWithContract = False						
-			else:
-				if symbol in ownedPositions:
-					ownedSymbolQty = ownedPositions[symbol]
-					# print(ownedSymbolQty)
-					
-					howManyContractsAlreadyOwned = 0
-					for position in ownedPositions:
-						# print(position)
-						owned = ownedPositions[position]
-						# print(owned)
-						if owned.asset_class == AssetClass.US_OPTION:
-							pos = find_first_non_alpha_loop(position)[1]
-							# print(pos)
-							# print(position, symbol, position[0: pos])
-
-							if position[0: pos] == symbol and position[pos+6] =='C':
-								# print(position[pos+6])
-								thisPositionContract = ownedPositions[position]
-								# print(thisPositionContract)
-								howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
-					# print(howManyContractsAlreadyOwned, int(ownedSymbolQty.qty))
-					if howManyContractsAlreadyOwned:
-						if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
-							logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
-							continueWithContract = False				
-			if continueWithContract:
-				logger.info(f"Selling call option: {contract.symbol}")
-				if not IS_TEST:
-					client.market_sell(contract.symbol)
-				else:
-					logger.info("TESTING ONLY")
-				if strat_logger:
-					strat_logger.log_sold_calls(contract.to_dict())
+		# if strike_price > upperBollinger:	
+		logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
+		# print(contract)
+		# print(ownedPositions)
+		
+		continueWithContract = True
+		if contract.symbol in ownedPositions:
+			logger.info(f"We already own {contract.symbol}.  Skipping!")
+			continueWithContract = False						
 		else:
-			logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
+			if symbol in ownedPositions:
+				ownedSymbolQty = ownedPositions[symbol]
+				# print(ownedSymbolQty)
+				
+				howManyContractsAlreadyOwned = 0
+				for position in ownedPositions:
+					# print(position)
+					owned = ownedPositions[position]
+					# print(owned)
+					if owned.asset_class == AssetClass.US_OPTION:
+						pos = find_first_non_alpha_loop(position)[1]
+						# print(pos)
+						# print(position, symbol, position[0: pos])
+
+						if position[0: pos] == symbol and position[pos+6] =='C':
+							# print(position[pos+6])
+							thisPositionContract = ownedPositions[position]
+							# print(thisPositionContract)
+							howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
+				# print(howManyContractsAlreadyOwned, int(ownedSymbolQty.qty))
+				if howManyContractsAlreadyOwned:
+					if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
+						logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
+						continueWithContract = False				
+		if continueWithContract:
+			logger.info(f"Selling call option: {contract.symbol}")
+			if not IS_TEST:
+				client.market_sell(contract.symbol)
+			else:
+				logger.info("TESTING ONLY")
+			if strat_logger:
+				strat_logger.log_sold_calls(contract.to_dict())
+		# else:
+			# logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
 	else:
 		logger.info(f"No viable call options found for {symbol}")
 		
