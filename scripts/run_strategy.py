@@ -590,6 +590,14 @@ def getTradingSymbols(loadSymbolsFromLocal):
 	symbols = df[column].unique().tolist()
 	return symbols
 		
+	
+def getExcludedTickersForPut():
+	recs = Fire.getCollection()
+	excludes = list()
+	for rec in recs.get():
+		# print(rec.get("tickers"))
+		excludes.extend(rec.get("tickers"))
+	return excludes
 
 def main():
 	args = parse_args()
@@ -628,7 +636,7 @@ def main():
 				logger.info("Running TESTS even though market is not open")
 		
 		# enabled, target = getRuntimeSettings(ENVIRONMENT)
-		sell_put_active, sell_call_active, close_put_active, close_call_active, target = Fire.getRuntimeSettings(ENVIRONMENT)
+		sell_put_active, sell_call_active, close_put_active, close_call_active, target, fireSettings = Fire.getRuntimeSettings(ENVIRONMENT)
 		enabled = (sell_put_active or sell_call_active or close_put_active or close_call_active)
 		if not enabled:
 			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
@@ -713,19 +721,28 @@ def main():
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
 				# print(allowed_symbols)
 				
-				buying_power = float(tradingClient.get_account().buying_power)
+				buying_power = float(tradingClient.get_account().options_buying_power)
 				
 				# buying_power = MAX_RISK - current_risk
 			
 			strat_logger.set_buying_power(buying_power)
 			strat_logger.set_allowed_symbols(allowed_symbols)
 
+			reduction = 500
+			if 'reserve' in fireSettings.to_dict():
+				reduction = fireSettings.get("reserve")
+				logger.info(f'Firestore RESERVE is {reduction}')
+			buying_power -= reduction
 			logger.info(f"Current buying power is ${buying_power}")
-			# buying_power = 5000
-			
+						
 			ownedPositions = getCurrentPositions(True)
+			
+			excludedPut = getExcludedTickersForPut()
+			logger.info(f'Exluding tickers {excludedPut} from put sales')			
+			put_allowed_symbols = list(filter(lambda item: item not in excludedPut, allowed_symbols))
+			
 			if sell_put_active or IS_TEST:
-				sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger)
+				sell_puts(client, put_allowed_symbols, buying_power, ownedPositions, strat_logger, fireSettings)
 
 			strat_logger.save() 
 			
