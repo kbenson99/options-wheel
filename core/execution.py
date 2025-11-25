@@ -14,7 +14,7 @@ from config.params import IS_TEST, MINIMUM_PREMIUM, DELTA_MIN, DELTA_MAX, DELTA_
 
 logger = logging.getLogger(f"strategy.{__name__}")
 
-def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger = None):
+def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger = None, fireSettings = None):
 	"""
 	Scan allowed symbols and sell short puts up to the buying power limit.
 	"""
@@ -51,8 +51,15 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				logger.info(f"We already own {p.symbol}.  Skipping!")
 				continue
 				
-			if p.bid_price <= MINIMUM_PREMIUM:
-				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower or less than our target {MINIMUM_PREMIUM}")
+			minimum_prem = MINIMUM_PREMIUM
+			reduction = 500
+			if fireSettings:
+				if 'minimum_premium' in fireSettings.to_dict():
+					minimum_prem = fireSettings.get("minimum_premium")
+					logger.info(f'Firestore minimum premium is {minimum_prem}')
+				
+			if p.bid_price <= minimum_prem:
+				logger.info(f"Put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100} with Strike {p.strike} has Premium lower or less than our target {minimum_prem * 100}")
 				continue
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
