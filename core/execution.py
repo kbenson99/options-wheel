@@ -52,7 +52,6 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				continue
 				
 			minimum_prem = MINIMUM_PREMIUM
-			reduction = 500
 			if fireSettings:
 				if 'minimum_premium' in fireSettings.to_dict():
 					minimum_prem = fireSettings.get("minimum_premium")
@@ -66,13 +65,19 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 			
 			upperBollinger, lowerBollinger, rsi = getTechnicalIndicators(p.underlying, 50) #, stock_data_client)
 			
+			minimum_rsi = 30
+			if fireSettings:
+				if 'put_rsi' in fireSettings.to_dict():
+					minimum_rsi = fireSettings.get("put_rsi")
+					logger.info(f'Firestore minimum RSI is {minimum_rsi}')			
+			
 			if p.strike > lowerBollinger and lowerBollinger > 0:
 				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
 				continue
 			else:
 				logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}')
 				
-			if rsi > 30:
+			if rsi > minimum_rsi:
 				logger.info(f'RSI = {rsi}.  SKIPPING')
 				continue
 			else:

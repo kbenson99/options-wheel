@@ -548,7 +548,17 @@ def checkTrades(environment: str = PAPER):
 	msg = f"Options Buying Power: ${account.options_buying_power}"
 	messages.append(msg)
 	logger.info(msg)	
+	
+	maintenance_margin_balance = account.maintenance_margin
+	msg = f"Maintenance Margin: ${maintenance_margin_balance}"
+	messages.append(msg)
+	logger.info(msg)	
 
+	equity = account.equity
+	msg = f"Equity value: ${equity}"
+	messages.append(msg)
+	logger.info(msg)
+	
 	df = pd.DataFrame(email_data)
 	configs = getConfiguration()
 	pwd = decodeEncryptedValue(configs.get("EMAIL_PWD").data, SECURITY_KEY)
@@ -592,7 +602,7 @@ def getTradingSymbols(loadSymbolsFromLocal):
 		
 	
 def getExcludedTickersForPut():
-	recs = Fire.getCollection()
+	recs = Firestore.getCollection()
 	excludes = list()
 	for rec in recs.get():
 		# print(rec.get("tickers"))
@@ -636,7 +646,7 @@ def main():
 				logger.info("Running TESTS even though market is not open")
 		
 		# enabled, target = getRuntimeSettings(ENVIRONMENT)
-		sell_put_active, sell_call_active, close_put_active, close_call_active, target, fireSettings = Fire.getRuntimeSettings(ENVIRONMENT)
+		sell_put_active, sell_call_active, close_put_active, close_call_active, target, fireSettings = Firestore.getRuntimeSettings(ENVIRONMENT)
 		enabled = (sell_put_active or sell_call_active or close_put_active or close_call_active)
 		if not enabled:
 			logger.info(f"NEON Sql flag set to NOT ENABLED for {ENVIRONMENT} environment!!!")
