@@ -63,7 +63,10 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 				
 			logger.info(f"Selling put for {p.underlying}: {p.symbol} for premium ${p.bid_price * 100}.  Strike {p.strike}")
 			
-			upperBollinger, lowerBollinger, rsi = getTechnicalIndicators(p.underlying, 50) #, stock_data_client)
+			try:
+				upperBollinger, lowerBollinger, rsi = getTechnicalIndicators(p.underlying, 50) #, stock_data_client)
+			except:
+				continue
 			
 			minimum_rsi = 30
 			if fireSettings:
@@ -71,17 +74,31 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 					minimum_rsi = fireSettings.get("put_rsi")
 					logger.info(f'Firestore minimum RSI is {minimum_rsi}')			
 			
-			if p.strike > lowerBollinger and lowerBollinger > 0:
-				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
-				continue
-			else:
-				logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}')
+			bollingerVarianceLimimt = .985
+			if fireSettings:
+				if 'put_bollinger_variance' in fireSettings.to_dict():
+					bollingerVarianceLimimt = fireSettings.get("put_bollinger_variance")
+					logger.info(f'Firestore minimum bollingerVarianceLimimt is {bollingerVarianceLimimt}')			
+			
+			variance = lowerBollinger / p.strike
+
+			if variance > bollingerVarianceLimimt:
+				print(40 * '-')
+				logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}, but VARIANCE is {variance}.  Proceeding!')
+				print(40 * '-')
+			else:		
+				if p.strike > lowerBollinger and lowerBollinger > 0:
+					logger.info(f'Lower Bollinger of {lowerBollinger} for {p.underlying} is less than {p.strike}.  SKIPPING!')
+					continue
+				else:
+					logger.info(f'{p.underlying} has a lower Bollinger of {lowerBollinger} and strike of {p.strike}.  Proceeding!')
 				
-			if rsi > minimum_rsi:
-				logger.info(f'RSI = {rsi}.  SKIPPING')
-				continue
-			else:
+			if rsi >= minimum_rsi:
 				logger.info(f'RSI = {rsi}  Proceeding!')
+				# continue
+			else:
+				logger.info(f'RSI for {p.symbol} = {rsi}.  SKIPPING')
+				continue
 				
 			breakeven = p.strike - p.bid_price * 100
 				
@@ -91,7 +108,10 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 			
 			# print(p)
 			# IS_TEST = True
-			try:				
+			try:	
+				print(70 * '-')
+				logger.info(f'PROCEEDING with {p.symbol}')
+				print(70 * '-')
 				if not IS_TEST:
 					client.market_sell(p.symbol)
 				else:

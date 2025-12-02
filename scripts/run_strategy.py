@@ -501,7 +501,8 @@ def checkTrades(environment: str = PAPER):
 			else:
 				logger.info(f'Put: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike} Breakeven = {breakeven}')
 		if contractType == 'C':
-			breakeven = strike + float(order.filled_avg_price)
+			# breakeven = strike + float(order.filled_avg_price)
+			breakeven = strike - float(order.filled_avg_price)
 			if currentPrice[stock].price > strike:
 				logger.info(f'Call ASSIGNMENT RISK: {symbol}, CurrentPrice = {currentPrice[stock].price} Strike = {strike} Breakeven = {breakeven}')
 				risk = "Y"
