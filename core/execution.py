@@ -131,7 +131,7 @@ def find_first_non_alpha_loop(s):
             return char, index
     return None, -1 # No non-alpha character found
 	
-def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, ownedPositions, strat_logger = None):
+def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, ownedPositions, strat_logger = None, fireSettings=None):
 	"""
 	Select and sell covered calls.
 	"""
@@ -189,6 +189,17 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		# print(ownedPositions)
 		
 		continueWithContract = True
+		
+		minimum_prem = MINIMUM_PREMIUM
+		if fireSettings:
+			if 'minimum_premium' in fireSettings.to_dict():
+				minimum_prem = fireSettings.get("minimum_premium")
+				logger.info(f'Firestore minimum premium is {minimum_prem}')
+			
+		if option_price < minimum_prem:
+			logger.info(f"Put for {contract.symbol}: {symbol} for premium ${option_price * 100} with Strike {strike_price} has Premium lower or less than our target {minimum_prem * 100}")
+			continueWithContract = False
+				
 		if contract.symbol in ownedPositions:
 			logger.info(f"We already own {contract.symbol}.  Skipping!")
 			continueWithContract = False						

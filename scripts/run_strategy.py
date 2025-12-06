@@ -727,7 +727,7 @@ def main():
 				for symbol, state in states.items():
 					if state["type"] == "long_shares":
 						if sell_call_active or IS_TEST:
-							sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger)
+							sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger, fireSettings)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
 				# print(allowed_symbols)
@@ -771,18 +771,23 @@ def main():
 
 def testSellCall(symbol):
 	underlying_trade_request = StockLatestTradeRequest(symbol_or_symbols=symbol)
-	
-	client = AlpacaClientInstance().getClient(TradingClient, ENVIRONMENT)
+	client = AlpacaClientInstance().getClient(BrokerClient, ENVIRONMENT)
+	# client = AlpacaClientInstance().getClient(TradingClient, ENVIRONMENT)
 	stock_data_client = AlpacaClientInstance().getClient(StockHistoricalDataClient, ENVIRONMENT)
 	
-	upperBollinger = getBollingerBands(symbol)
+	upperBollinger, lowerBollinger, rsi = getTechnicalIndicators(symbol, 50) #, stock_data_client)
 	
 	underlying_trade_response = stock_data_client.get_stock_latest_trade(underlying_trade_request)
 	print(f"Current price for {symbol} is {underlying_trade_response[symbol].price}")
 	
 	strat_logger = getStrategyLogger()
 	logger = getLogger()
-	# sell_calls(client, stock_data_client, symbol, underlying_trade_response[symbol].price, 100, strat_logger)
+	
+	sell_put_active, sell_call_active, close_put_active, close_call_active, target, fireSettings = Firestore.getRuntimeSettings(ENVIRONMENT)
+	ownedPositions = getCurrentPositions()
+	# sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, ownedPositions, strat_logger = None, fireSettings=None):
+		
+	sell_calls(client, stock_data_client, symbol, underlying_trade_response[symbol].price, 100, ownedPositions, strat_logger=None, fireSettings=fireSettings)
 	
 	
 	print(underlying_trade_response)

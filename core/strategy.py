@@ -19,25 +19,48 @@ def filter_underlying(client, symbols, buying_power_limit):
 
 	return filtered_symbols
 
+def testOption(contract, min_strike = 0):
+	if contract.contract_type == 'call':
+		max_delta = DELTA_CALL_MAX
+	# print(contract)
+	# if (contract.delta):
+		# print(abs(contract.delta) > DELTA_MIN)
+		# print(contract.delta < max_delta)
+	# print('bid', contract.bid_price)
+	# print('strike', contract.strike)
+	# print('dte', contract.dte)
+	# print(2 * '-')
+	# print(contract.bid_price / contract.strike)
+	# print(contract.dte + 1)
+	# print(contract.oi)
+	# print(contract.bid_price / contract.strike) * (365 / (contract.dte + 1))
+	# print(contract.bid_price / contract.strike) * (365 / (contract.dte + 1))
+	# print(contract.oi > OPEN_INTEREST_MIN)
+	# print(contract.strike >= min_strike)
+
+	valid = contract.delta and abs(contract.delta) > DELTA_MIN \
+		and abs(contract.delta) < max_delta \
+		and contract.oi \
+		and contract.oi > OPEN_INTEREST_MIN \
+		and contract.strike >= min_strike	
+	if contract.contract_type != 'call':
+		valid = valid and (contract.bid_price / contract.strike) * (365 / (contract.dte + 1)) > YIELD_MIN \
+					and (contract.bid_price / contract.strike) * (365 / (contract.dte + 1)) < YIELD_MAX 
+	# print('Valid', valid)
+	# print(40* '-')
+	return valid
+	
 def filter_options(options, min_strike = 0):
 	"""
 	Filter put options based on delta and open interest.
 	"""
-	# for contract in options:
-		# print(contract)
 	filtered_contracts = list()
 	for contract in options:
 		max_delta = DELTA_MAX
 		if contract.contract_type == 'call':
 			max_delta = DELTA_CALL_MAX
-		if contract.delta and abs(contract.delta) > DELTA_MIN \
-			and abs(contract.delta) < max_delta \
-			and (contract.bid_price / contract.strike) * (365 / (contract.dte + 1)) > YIELD_MIN \
-			and (contract.bid_price / contract.strike) * (365 / (contract.dte + 1)) < YIELD_MAX \
-			and contract.oi \
-			and contract.oi > OPEN_INTEREST_MIN \
-			and contract.strike >= min_strike: filtered_contracts.append(contract)
-							  
+		if testOption(contract, min_strike):
+			filtered_contracts.append(contract)						  
 						 
 	# filtered_contracts = [contract 
 						  # for contract in options:
