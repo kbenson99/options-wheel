@@ -20,6 +20,7 @@ def filter_underlying(client, symbols, buying_power_limit):
 	return filtered_symbols
 
 def testOption(contract, min_strike = 0):
+	max_delta = DELTA_MAX
 	if contract.contract_type == 'call':
 		max_delta = DELTA_CALL_MAX
 	# print(contract)

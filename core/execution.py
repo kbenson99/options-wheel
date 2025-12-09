@@ -201,8 +201,8 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 			continueWithContract = False
 				
 		if contract.symbol in ownedPositions:
-			logger.info(f"We already own {contract.symbol}.  Skipping!")
-			continueWithContract = False						
+			logger.info(f"We already own {contract.symbol}.  Not Skipping!")
+			# continueWithContract = False						
 		else:
 			if symbol in ownedPositions:
 				ownedSymbolQty = ownedPositions[symbol]
