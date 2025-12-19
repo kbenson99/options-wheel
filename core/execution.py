@@ -199,7 +199,8 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		if option_price < minimum_prem:
 			logger.info(f"Put for {contract.symbol}: {symbol} for premium ${option_price * 100} with Strike {strike_price} has Premium lower or less than our target {minimum_prem * 100}")
 			continueWithContract = False
-				
+
+		howManyContractsAlreadyOwned = 0				
 		if contract.symbol in ownedPositions:
 			logger.info(f"We already own {contract.symbol}.  Not Skipping!")
 			# continueWithContract = False						
@@ -208,7 +209,6 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 				ownedSymbolQty = ownedPositions[symbol]
 				# print(ownedSymbolQty)
 				
-				howManyContractsAlreadyOwned = 0
 				for position in ownedPositions:
 					# print(position)
 					owned = ownedPositions[position]
@@ -231,9 +231,14 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 		if continueWithContract:
 			logger.info(f"Selling call option: {contract.symbol}")
 			if not IS_TEST:
-				client.market_sell(contract.symbol)
+				try:
+					client.market_sell(contract.symbol)
+				except Exception as ee:
+					logger.exception(str(ee))
+					logger.exception(ee) 					
 			else:
 				logger.info("TESTING ONLY")
+				logger.info(howManyContractsAlreadyOwned)
 			if strat_logger:
 				strat_logger.log_sold_calls(contract.to_dict())
 		# else:

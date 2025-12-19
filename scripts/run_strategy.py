@@ -175,8 +175,12 @@ def getSymbolSource():
 def getSymbols(fromLocal=False):
 	df = None
 	if not fromLocal:
-		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
-	else:
+		# df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
+		collection = Firestore.getCollection('options')
+		doc_ref = collection.document('eNbMaj6GOZC2SDyEKf3M')
+		doc_snapshot = doc_ref.get()
+		df = pd.DataFrame(doc_snapshot.get("tickers"), columns=[symbolColumn])		
+	else:		
 		df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False, db=DbVariables.MariaDbOptions)
 	# symbols = df[symbolColumn.lower()].unique().tolist()
 	return df
@@ -185,9 +189,9 @@ def syncSymbols(df, service=DbVariables.MariaDbOptions):
 	OptionsDatabase.deleteAllTableRecords(table=DbVariables.OPTIONS_SYMBOLS_TABLE, service=service)
 	df_renamed = df.rename(columns={symbolColumn.lower(): symbolColumn, creationTimestampColumn.lower(): creationTimestampColumn})
 	# print(df_renamed)
-	df_new = df_renamed.drop(creationTimestampColumn, axis=1)
+	# df_new = df_renamed.drop(creationTimestampColumn, axis=1)
 	# print(df_new)
-	OptionsDatabase.insertDatabaseRecords(df_new, optionsSymbolsTable, db=service)
+	OptionsDatabase.insertDatabaseRecords(df_renamed, optionsSymbolsTable, db=service)
 	
 def loadSymbolsFromCsv():
 	df = pd.read_csv(getSymbolSource())
@@ -590,14 +594,27 @@ def isMarketOpen():
 			loadSymbolsFromLocal = True
 	return marketOpen, loadSymbolsFromLocal
 	
+def testa():
+	collection = Firestore.getCollection('options')
+	doc_ref = collection.document('eNbMaj6GOZC2SDyEKf3M')
+	# doc_ref.update({
+	  # 'tickers': ['VFC','PSKY','LUMN','KEY','FLY','PATH','RXRX','DNA','TDOC','NU','CMG','FCEL','RUN','VERI','RIOT','EOSE','UEC','GAP','AES','ONDS','VALE','HIVE','UUUU','OPEN','BULL','DOCN','PINS','QBTS','RKT','HUT','BTDR','RGTI','RIVN','RCAT','LCID','WOLF','SLV','GT','NOK','EOS','JOBY','MARA','ADC','ADP','AEP','AFG','AFL','ALLY','AMZN','APP','ARCC','ASML','AVB','AVGO','BABA','BAC','BAM','BLK','C','CINF','CM','CME','CMI','CNQ','COST','CPT','CRWD','CSWC','DTM','DUK','EPRT','EQIX','EXC','FANG','FAST','FITB','FSK','GD','GOOG','GS','GWW','HBAN','HD','HTGC','IBM','INTU','IONQ','JEF','JPM','KMB','KO','KRC','LAMR','LEU','LOW','MAA','MAIN','MCD','MET','META','MPLX','MS','MSFT','MSTR','NFLX','NNN','NOW','NTAP','O','OBDC','OC','OKE','OKLO','OMF','ORCL','ORI','OZK','PAA','PFG','PG','PNC','PRU','QQQI','RY','SAR','SBUX','SCCO','SLF','SNOW','SO','SOUN','SPG','SPYI','SUN','TEM','TFC','TSLX','TSM','TXRH','UBER','UGI','UL','USB','VICI','VLO','VZ','WEC','WELL','WES','WM','WMB','WMT','WSO','MPW','EPD','ET','V','AAL','PLTR','NVDA','RF','DLR','CAT','QQQ','BBAI','F','OSCR','SOFI','HIMS','NVTS','FLG','SNAP','NIO','RKLB']
+	# })
+	doc_snapshot = doc_ref.get()
+	df = pd.DataFrame(doc_snapshot.get("tickers"), columns=[symbolColumn])
+	syncSymbols(df)
+	return df
+	# print(doc_snapshot.get("tickers"))
+	
 def getTradingSymbols(loadSymbolsFromLocal):
 	df = getSymbols(loadSymbolsFromLocal)
 	if not loadSymbolsFromLocal:
 		syncSymbols(df)
 		
-	column = symbolColumn.lower()
-	if loadSymbolsFromLocal:
-		column = symbolColumn
+	column = symbolColumn 
+	#.lower()
+	# if loadSymbolsFromLocal:
+		# column = symbolColumn
 	symbols = df[column].unique().tolist()
 	return symbols
 		
