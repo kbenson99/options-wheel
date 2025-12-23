@@ -43,6 +43,7 @@ pd.options.mode.chained_assignment = None
 import pickle
 
 from config.params import IS_TEST, TARGET_CLOSING_PERC
+from core.utils import *
 
 RISK_FREE_RATE = 0.01
 
@@ -67,18 +68,6 @@ def getLogger():
 	logger = setup_logger(level=args.log_level, to_file=args.log_to_file, log_file=filename)
 	return logger
 
-def is_same_day(dt1, dt2):
-	"""
-	Compares two datetime objects to check if they represent the same calendar day.
-
-	Args:
-	dt1: The first datetime object.
-	dt2: The second datetime object.
-
-	Returns:
-	True if both datetime objects fall on the same calendar day, False otherwise.
-	"""
-	return dt1.date() == dt2.date()
   
 def is_time_in_range(start_time, end_time, current_time):
 	"""
@@ -292,16 +281,6 @@ def getOrders(environment, direction='asc'):
 	return orders
 
 
-def wasTradedToday(symbol, orders):
-	tradedToday = False
-	now = datetime.now()
-	for order in orders:
-		if order.symbol == symbol:
-			filled = order.filled_at
-			if is_same_day(now, filled):
-				tradedToday = True
-				break
-	return tradedToday
 
 def send_option_positions_email(sender_email, sender_password, recipient_email, df, environment, messages=list(), smtp_server='smtp.gmail.com', smtp_port=587):
 	"""
@@ -769,8 +748,11 @@ def main():
 			logger.info(f'Exluding tickers {excludedPut} from put sales')			
 			put_allowed_symbols = list(filter(lambda item: item not in excludedPut, allowed_symbols))
 			
+			# Run the close Options logic for positions that are now rollable
+			ordersSubmitted = getOrders(ENVIRONMENT, direction='desc')
+				
 			if sell_put_active or IS_TEST:
-				sell_puts(client, put_allowed_symbols, buying_power, ownedPositions, strat_logger, fireSettings)
+				sell_puts(client, put_allowed_symbols, buying_power, ownedPositions, ordersSubmitted, strat_logger, fireSettings)
 
 			strat_logger.save() 
 			

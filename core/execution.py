@@ -12,9 +12,11 @@ from alpaca.trading.enums import AssetClass
 
 from config.params import IS_TEST, MINIMUM_PREMIUM, DELTA_MIN, DELTA_MAX, DELTA_CALL_MAX, YIELD_MIN, YIELD_MAX, OPEN_INTEREST_MIN, SCORE_MIN
 
+from core.utils import *
+
 logger = logging.getLogger(f"strategy.{__name__}")
 
-def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logger = None, fireSettings = None):
+def sell_puts(client, allowed_symbols, buying_power, ownedPositions, ordersSubmitted, strat_logger = None, fireSettings = None):
 	"""
 	Scan allowed symbols and sell short puts up to the buying power limit.
 	"""
@@ -42,6 +44,8 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 	
 	if put_options:
 		logger.info("Scoring put options...")
+		
+		
 		scores = score_options(put_options)
 		# logger.info(scores)
 		put_options = select_options(put_options, scores)
@@ -50,7 +54,12 @@ def sell_puts(client, allowed_symbols, buying_power, ownedPositions, strat_logge
 			if p.symbol in ownedPositions:
 				logger.info(f"We already own {p.symbol}.  Skipping!")
 				continue
-				
+			
+			pdtCheck = wasTradedToday(p.symbol, ordersSubmitted)
+			if pdtCheck:
+				logger.info(f"We already traded {p.symbol} today.  Skipping!")
+				continue
+
 			minimum_prem = MINIMUM_PREMIUM
 			if fireSettings:
 				if 'minimum_premium' in fireSettings.to_dict():
