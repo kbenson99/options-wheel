@@ -17,7 +17,7 @@ def setup_logger(log_file="logs/run.log", level="INFO", to_file=False):
 		# File output
 		if to_file:
 			Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-			fh = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 5, backupCount=5)
+			fh = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 8, backupCount=5)
 	
 			fh.setLevel(logging.DEBUG)
 			fh.setFormatter(logging.Formatter(
