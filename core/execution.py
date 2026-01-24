@@ -152,110 +152,112 @@ def sell_calls(client, stock_data_client, symbol, purchase_price, stock_qty, own
 	logger.info(f"Searching for call options on {symbol}...")
 	potential = client.get_options_contracts([symbol], 'call')
 	
-	technicals = getTechnicalIndicators(symbol) #, stock_data_client)
-	upperBollinger, lowerBollinger, rsi = technicals
-	logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
-	logger.info(f"RSI for {symbol} is {rsi}")
-	
-	recs = list()
-	for option in potential:
-		# option.strike_price > upperBollinger and
-		if  option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
-			recs.append(option.symbol)
-			# print(option)
-	
-	logger.info(f'Testing {len(recs)} options for {symbol}')
-	snapshots = client.get_option_snapshot(recs)
-	
-	# print(ppp)
-	call_options = filter_options([Contract.from_contract_snapshot(contract, snapshots.get(contract.symbol, None)) for contract in potential if snapshots.get(contract.symbol, None)])
-	# call_options = filter_options([Contract.from_contract(option, client) for option in ppp], purchase_price)
-	# print(call_options)
-	if strat_logger:
-		strat_logger.log_call_options([c.to_dict() for c in call_options])
-	
-	if call_options:
-		scores = score_options(call_options)
-		# print(scores)
-		contract = call_options[np.argmax(scores)]
-		logger.info(contract)
+	try:
+		technicals = getTechnicalIndicators(symbol) #, stock_data_client)
+		upperBollinger, lowerBollinger, rsi = technicals
+		logger.info(f"BollingerBand for {symbol} is {upperBollinger}")
+		logger.info(f"RSI for {symbol} is {rsi}")
 		
+		recs = list()
+		for option in potential:
+			# option.strike_price > upperBollinger and
+			if  option.open_interest and int(option.open_interest) > OPEN_INTEREST_MIN:
+				recs.append(option.symbol)
+				# print(option)
 		
-		option_price = (contract.bid_price + contract.ask_price) / 2
-		open_interest = float(contract.oi)
-		strike_price = float(contract.strike)
-
-		logger.info(f"option_symbol is {contract.symbol}")
-		logger.info(f"option_price is {option_price}")
-		logger.info(f"strike price is {strike_price}")
-		logger.info(f"open_interest is {open_interest}")
-		logger.info(f"delta is {contract.delta}")
-
-		# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper Bollinger band
-		# if strike_price > upperBollinger:	
-		logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
-		# print(contract)
-		# print(ownedPositions)
+		logger.info(f'Testing {len(recs)} options for {symbol}')
+		snapshots = client.get_option_snapshot(recs)
 		
-		continueWithContract = True
+		# print(ppp)
+		call_options = filter_options([Contract.from_contract_snapshot(contract, snapshots.get(contract.symbol, None)) for contract in potential if snapshots.get(contract.symbol, None)])
+		# call_options = filter_options([Contract.from_contract(option, client) for option in ppp], purchase_price)
+		# print(call_options)
+		if strat_logger:
+			strat_logger.log_call_options([c.to_dict() for c in call_options])
 		
-		minimum_prem = MINIMUM_PREMIUM
-		if fireSettings:
-			if 'minimum_premium' in fireSettings.to_dict():
-				minimum_prem = fireSettings.get("minimum_premium")
-				logger.info(f'Firestore minimum premium is {minimum_prem}')
+		if call_options:
+			scores = score_options(call_options)
+			# print(scores)
+			contract = call_options[np.argmax(scores)]
+			logger.info(contract)
 			
-		if option_price < minimum_prem:
-			logger.info(f"Put for {contract.symbol}: {symbol} for premium ${option_price * 100} with Strike {strike_price} has Premium lower or less than our target {minimum_prem * 100}")
-			continueWithContract = False
+			
+			option_price = (contract.bid_price + contract.ask_price) / 2
+			open_interest = float(contract.oi)
+			strike_price = float(contract.strike)
 
-		howManyContractsAlreadyOwned = 0				
-		if contract.symbol in ownedPositions:
-			logger.info(f"We already own {contract.symbol}.  Not Skipping!")
-			# continueWithContract = False						
-		else:
-			if symbol in ownedPositions:
-				ownedSymbolQty = ownedPositions[symbol]
-				# print(ownedSymbolQty)
+			logger.info(f"option_symbol is {contract.symbol}")
+			logger.info(f"option_price is {option_price}")
+			logger.info(f"strike price is {strike_price}")
+			logger.info(f"open_interest is {open_interest}")
+			logger.info(f"delta is {contract.delta}")
+
+			# Check if delta is between 0.42 and 0.18 and if the strike price is greater than the latest upper Bollinger band
+			# if strike_price > upperBollinger:	
+			logger.info(f"Strike {strike_price} is greater than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
+			# print(contract)
+			# print(ownedPositions)
+			
+			continueWithContract = True
+			
+			minimum_prem = MINIMUM_PREMIUM
+			if fireSettings:
+				if 'minimum_premium' in fireSettings.to_dict():
+					minimum_prem = fireSettings.get("minimum_premium")
+					logger.info(f'Firestore minimum premium is {minimum_prem}')
 				
-				for position in ownedPositions:
-					# print(position)
-					owned = ownedPositions[position]
-					# print(owned)
-					if owned.asset_class == AssetClass.US_OPTION:
-						pos = find_first_non_alpha_loop(position)[1]
-						# print(pos)
-						# print(position, symbol, position[0: pos])
+			if option_price < minimum_prem:
+				logger.info(f"Put for {contract.symbol}: {symbol} for premium ${option_price * 100} with Strike {strike_price} has Premium lower or less than our target {minimum_prem * 100}")
+				continueWithContract = False
 
-						if position[0: pos] == symbol and position[pos+6] =='C':
-							# print(position[pos+6])
-							thisPositionContract = ownedPositions[position]
-							# print(thisPositionContract)
-							howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
-				# print(howManyContractsAlreadyOwned, int(ownedSymbolQty.qty))
-				if howManyContractsAlreadyOwned:
-					if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
-						logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
-						continueWithContract = False				
-		if continueWithContract:
-			logger.info(f"Selling call option: {contract.symbol}")
-			if not IS_TEST:
-				try:
-					client.market_sell(contract.symbol)
-				except Exception as ee:
-					logger.exception(str(ee))
-					logger.exception(ee) 					
+			howManyContractsAlreadyOwned = 0				
+			if contract.symbol in ownedPositions:
+				logger.info(f"We already own {contract.symbol}.  Not Skipping!")
+				# continueWithContract = False						
 			else:
-				logger.info("TESTING ONLY")
-				logger.info(howManyContractsAlreadyOwned)
-			if strat_logger:
-				strat_logger.log_sold_calls(contract.to_dict())
-		# else:
-			# logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
-	else:
-		logger.info(f"No viable call options found for {symbol}")
-		
+				if symbol in ownedPositions:
+					ownedSymbolQty = ownedPositions[symbol]
+					# print(ownedSymbolQty)
+					
+					for position in ownedPositions:
+						# print(position)
+						owned = ownedPositions[position]
+						# print(owned)
+						if owned.asset_class == AssetClass.US_OPTION:
+							pos = find_first_non_alpha_loop(position)[1]
+							# print(pos)
+							# print(position, symbol, position[0: pos])
 
+							if position[0: pos] == symbol and position[pos+6] =='C':
+								# print(position[pos+6])
+								thisPositionContract = ownedPositions[position]
+								# print(thisPositionContract)
+								howManyContractsAlreadyOwned += abs( int(thisPositionContract.qty))
+					# print(howManyContractsAlreadyOwned, int(ownedSymbolQty.qty))
+					if howManyContractsAlreadyOwned:
+						if (howManyContractsAlreadyOwned +1) * 100 > int(ownedSymbolQty.qty):
+							logger.info(f"Stop!  Selling this contract will put us out of synch with the number of shares of {symbol}!")
+							continueWithContract = False				
+			if continueWithContract:
+				logger.info(f"Selling call option: {contract.symbol}")
+				if not IS_TEST:
+					try:
+						client.market_sell(contract.symbol)
+					except Exception as ee:
+						logger.exception(str(ee))
+						logger.exception(ee) 					
+				else:
+					logger.info("TESTING ONLY")
+					logger.info(howManyContractsAlreadyOwned)
+				if strat_logger:
+					strat_logger.log_sold_calls(contract.to_dict())
+			# else:
+				# logger.info(f"NO CALL SALE --Strike {strike_price} is less than UpperBollinger {upperBollinger} for symbol {contract.symbol}")
+		else:
+			logger.info(f"No viable call options found for {symbol}")
+	except Exception as e:
+		print(f"Error: {e}")
+		
 
 # message, short = roll_rinse_option(option_data=short_put, rolling=True)
 # message, short

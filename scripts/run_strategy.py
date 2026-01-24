@@ -427,7 +427,8 @@ def checkTrades(environment: str = PAPER):
 						net = amount + premium
 						if net < 0:
 							losers += 1
-						logger.info(f'Closed {symbol} position for a net amount of {round(amount + premium, 2)}')
+						msg = f'Closed {symbol} position for a net amount of {round(amount + premium, 2)}'
+						# logger.info(msg)
 						closedTotalPremium += amount + premium
 						cnt += 1
 
@@ -500,7 +501,8 @@ def checkTrades(environment: str = PAPER):
 	
 	logger.info(40 * '-')	
 	messages = list()
-	msg = f'Premium from {cnt} closed option positions: ${closedTotalPremium}'
+	value = round(closedTotalPremium, 2)
+	msg = f'Premium from {cnt} closed option positions: ${value}'
 	messages.append(msg)
 	logger.info(msg)
 	
