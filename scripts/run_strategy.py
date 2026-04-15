@@ -166,7 +166,7 @@ def getSymbols(fromLocal=False):
 	if not fromLocal:
 		# df = OptionsDatabase.getDatabaseRecords(optionsSymbolsTable, False)
 		collection = Firestore.getCollection('options')
-		doc_ref = collection.document('eNbMaj6GOZC2SDyEKf3M')
+		doc_ref = collection.document('lRRgAjua7E0BNWV5VyYX')
 		doc_snapshot = doc_ref.get()
 		df = pd.DataFrame(doc_snapshot.get("tickers"), columns=[symbolColumn])		
 	else:		
@@ -728,7 +728,7 @@ def main():
 							sell_calls(client, stock_data_client, symbol, state["price"], state["qty"], ownedPositions, strat_logger, fireSettings)
 
 				allowed_symbols = list(set(SYMBOLS).difference(states.keys()))
-				# print(allowed_symbols)
+				print('MPW' in SYMBOLS)
 				
 				buying_power = float(tradingClient.get_account().options_buying_power)
 				
